@@ -1,0 +1,10 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+
+# 中间产物：压缩后的 WebP，可由 scripts/compress-art.py 重新生成
+deploy-art/
+
+# 本机预览服务无需入库的内容
+_qa_tmp/
