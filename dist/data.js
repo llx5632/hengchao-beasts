@@ -22,6 +22,7 @@ export const ELEMENTS = Object.freeze(['火','水','草','岩','风']);
 export const CARDS = Object.freeze(rows.map(([id,name,element,tier,hp,retreat,height,weight,story,s1,s2,art]) => Object.freeze({id,name,element,tier,hp,retreat,height,weight,story,skills:Object.freeze([Object.freeze(s1),Object.freeze(s2)]),art:CURRENT_ART[id] ?? art})));
 export const CARD = Object.freeze(Object.fromEntries(CARDS.map(c => [c.id,c])));
 export const STARTERS = Object.freeze(['tanling','woxu','taituan','mingjing','zhiyi']);
+export const POINT_NUMBERS = Object.freeze([0,1,2,3,4,5,6]);
 export const METRICS = Object.freeze([
   { name:'名字字数', read:c => [...c.name].length, unit:'字' },
   { name:'最大 HP', read:c => c.hp, unit:'' },
@@ -30,6 +31,8 @@ export const METRICS = Object.freeze([
   { name:'身高', read:c => c.height, unit:'m' },
   { name:'体重', read:c => c.weight, unit:'kg' },
 ]);
+// Sum 0 is the reveal-and-repick draw; positive sums cycle through items 1..6.
+export const pointMetricIndex = sum => sum===0 ? null : (sum + METRICS.length - 1) % METRICS.length;
 export const skillText = s => `${s.damage} 伤害${s.effect === 'heal' ? ` · 自己回血 ${s.amount}` : s.effect === 'delay' ? ` · 对方剩余撤退 +${s.amount}` : ''}`;
 export function inventory(player, laboratory = false) {
   const ids = laboratory ? CARDS.flatMap(c => [c.id,c.id]) : STARTERS;

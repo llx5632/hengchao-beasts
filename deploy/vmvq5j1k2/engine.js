@@ -1,4 +1,6 @@
-import { CARD, BEATS, METRICS } from './data.js';
+import { CARD, BEATS, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
+import { hardPointAction, hardBattleAction } from './ai.js';
+import { resolveCombatAction } from './combat.js';
 
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 export const randomInt = (max, rng = Math.random) => Math.min(max - 1, Math.floor(rng() * max));
@@ -17,10 +19,11 @@ export function createMatch(mode, inventories) {
   }
   const ids = inventories.flat().map(c => c.id);
   check(new Set(ids).size === ids.length,'卡牌实例不能重复');
-  return { mode, phase:'select', status:'active', inventories:structuredClone(inventories), selections:[null,null], hands:null, battle:null, point:null, round:0, rounds:[], scores:[0,0], decisions:[null,null], picks:[null,null], rps:[null,null], controls:['human','human'], winner:null, reason:null, history:[], transfers:[] };
+  return { mode, phase:'select', status:'active', difficulty:'easy', inventories:structuredClone(inventories), selections:[null,null], lineups:null, lineupReady:[false,false], hands:null, battle:null, point:null, round:0, rounds:[], scores:[0,0], decisions:[null,null], picks:[null,null], rps:[null,null], controls:['human','human'], winner:null, reason:null, history:[], transfers:[] };
 }
 export function expectedPlayers(m) {
   if (m.status !== 'active') return [];
+  if (m.phase === 'lineup-reveal') return [0,1].filter(p => !m.lineupReady[p]);
   const key = {select:'selections',between:'decisions',point:'picks',rps:'rps'}[m.phase];
   if (key) return [0,1].filter(p => m[key][p] === null);
   return m.phase === 'battle-action' ? [m.battle.actor] : [];
@@ -68,10 +71,13 @@ function resolveDecisions(m,rng) {
   startPointRound(m);
 }
 function resolvePoint(m) {
-  const sum=m.picks[0]+m.picks[1], metric=sum%6;
-  const values=m.point.cards.map(c => METRICS[metric].read(CARD[c.cardId]));
-  const comparison={numbers:[...m.picks],sum,metric,values};
+  const sum=m.picks[0]+m.picks[1], metric=pointMetricIndex(sum);
+  const values=metric===null ? null : m.point.cards.map(c => METRICS[metric].read(CARD[c.cardId]));
+  const comparison={kind:metric===null?'double-zero':'metric',numbers:[...m.picks],sum,metric,values};
   m.point.comparisons.push(comparison);
+  if(!m.pointHistory)m.pointHistory=m.rounds.flatMap(r=>r.comparison?[[...r.comparison.numbers]]:[]).concat(m.point.comparisons.slice(0,-1).map(c=>[...c.numbers]));
+  m.pointHistory.push([...m.picks]);
+  if(metric===null) { m.point.revealed=true;m.phase='point-tie';log(m,`第 ${m.round+1} 小局：双方均出 0，本次直接平手，公开当前双方卡牌后用原卡重新选点。`);return; }
   if (values[0] === values[1]) { m.point.revealed=true; m.phase='point-tie'; log(m,`第 ${m.round+1} 小局：${METRICS[metric].name}相同，公开当前双方卡牌后重新选点。`); return; }
   const winner=values[0] > values[1] ? 0 : 1;
   transfer(m,1-winner,m.point.cards[1-winner].id,'拼点获胜');
@@ -82,36 +88,22 @@ function resolvePoint(m) {
 function battleAction(m,action) {
   const b=m.battle,p=action.player,other=1-p;
   check(m.phase === 'battle-action' && b.actor === p,'只有猜拳胜者可以行动');
-  if (action.type === 'retreat') {
-    b.remaining[p]--;
-    b.last={player:p,text:`选择撤退，剩余撤退点数 ${b.remaining[p]}`}; log(m,b.last.text);
-    if (b.remaining[p] === 0) finish(m,null,'撤退成功，平局，双方保留卡牌'); else m.phase='battle-turn';
-    return;
-  }
-  check(Number.isInteger(action.skill) && action.skill >= 0 && action.skill < 2,'请选择一个技能');
-  const skill=CARD[b.cards[p]].skills[action.skill];
-  b.hp[other]=Math.max(0,b.hp[other]-skill.damage);
-  let detail=`${skill.name}造成 ${skill.damage} 伤害`;
-  if (b.hp[other] === 0) {
-    b.last={player:p,text:detail}; log(m,detail);
-    transfer(m,other,m.hands[other][0].id,'战斗获胜'); finish(m,p,'对方剩余 HP 为 0，战斗获胜'); return;
-  }
-  if (skill.effect === 'heal') {
-    const before=b.hp[p]; b.hp[p]=Math.min(CARD[b.cards[p]].hp,b.hp[p]+skill.amount);
-    detail+=`，自己恢复 ${b.hp[p]-before} HP`;
-  }
-  if (skill.effect === 'delay') {
-    const before=b.remaining[other]; b.remaining[other]=Math.min(CARD[b.cards[other]].retreat+2,b.remaining[other]+skill.amount);
-    detail+=`，对方剩余撤退 +${b.remaining[other]-before}`;
-  }
-  b.last={player:p,text:detail}; log(m,detail); m.phase='battle-turn';
+  if(action.type==='attack')check(Number.isInteger(action.skill) && action.skill >= 0 && action.skill < 2,'请选择一个技能');
+  const result=resolveCombatAction(b,p,action);
+  m.battle=result.state;
+  m.battle.last={player:p,text:result.text,before:{hp:[...b.hp],remaining:[...b.remaining]},after:{hp:[...result.state.hp],remaining:[...result.state.remaining]}};log(m,result.text);
+  if(!result.finished)m.phase='battle-turn';
+  else if(result.winner===null)finish(m,null,'撤退成功，平局，双方保留卡牌');
+  else {transfer(m,other,m.hands[other][0].id,'战斗获胜');finish(m,p,'对方剩余 HP 为 0，战斗获胜');}
 }
+
 export function dispatch(match,action,rng=Math.random) {
   check(match.status === 'active','本场对局已经结束');
   const m=structuredClone(match);
   if (action.type === 'control') { check([0,1].includes(action.player),'未知玩家'); check(['ai','human'].includes(action.control),'未知控制方式'); m.controls[action.player]=action.control; return m; }
   if (action.type === 'advance') {
-    if (['battle-reveal','battle-turn','rps-tie'].includes(m.phase)) { m.rps=[null,null]; m.phase='rps'; }
+    if (m.phase === 'rps-result') m.phase='battle-action';
+    else if (['battle-reveal','battle-turn','rps-tie'].includes(m.phase)) { m.rps=[null,null]; m.phase='rps'; }
     else if (m.phase === 'point-tie') { m.picks=[null,null]; m.phase='point'; }
     else if (m.phase === 'round-result') {
       if (m.round === 5) finish(m,m.scores[0] === m.scores[1] ? null : m.scores[0] > m.scores[1] ? 0 : 1,'五小局完成，保留所有小局赢卡结果');
@@ -134,21 +126,34 @@ export function dispatch(match,action,rng=Math.random) {
     m.selections[p]=[...action.ids];
     if (m.selections.every(Boolean)) {
       if (m.mode === 'battle') startBattle(m);
-      else { m.hands=m.selections.map((ids,owner) => shuffled(ids.map(id => m.inventories[owner].find(c => c.id === id)),rng)); m.phase='between'; }
+      else {
+        // Public roster order is independent of both selection order and the future queue.
+        m.lineups=m.selections.map((ids,owner) => ids.map(id => structuredClone(m.inventories[owner].find(c => c.id === id))).sort((a,b)=>a.cardId.localeCompare(b.cardId)||a.id.localeCompare(b.id)));
+        m.lineupReady=[false,false];m.phase='lineup-reveal';
+        log(m,'双方出战卡已封存，同时公开各自五张阵容；确认后分别打乱，出场顺序保密。');
+      }
+    }
+  } else if (action.type === 'lineup-ready') {
+    check(m.phase === 'lineup-reveal','当前不是阵容展示阶段');
+    m.lineupReady[p]=true;
+    if(m.lineupReady.every(Boolean)) {
+      m.hands=m.lineups.map(cards=>shuffled(structuredClone(cards),rng));
+      m.decisions=[null,null];m.phase='between';
+      log(m,'双方已确认公开阵容，出场顺序分别打乱，准备第一小局前的继续或投降决定。');
     }
   } else if (action.type === 'decision') {
     check(m.phase === 'between' && ['continue','surrender'].includes(action.value),'请选择继续或投降');
     m.decisions[p]=action.value;
     if (m.decisions.every(Boolean)) resolveDecisions(m,rng);
   } else if (action.type === 'point') {
-    check(m.phase === 'point' && Number.isInteger(action.value) && action.value >= 1 && action.value <= 6,'点数必须为 1～6');
+    check(m.phase === 'point' && POINT_NUMBERS.includes(action.value),'点数必须为 0～6 的整数');
     m.picks[p]=action.value; if (m.picks.every(v => v !== null)) resolvePoint(m);
   } else if (action.type === 'rps') {
     check(m.phase === 'rps' && ['rock','paper','scissors'].includes(action.value),'请选择石头、剪刀或布');
     m.rps[p]=action.value;
     if (m.rps.every(Boolean)) {
       if (m.rps[0] === m.rps[1]) { m.phase='rps-tie'; log(m,'猜拳平手，双方均不行动，重新猜拳。'); }
-      else { const beats={rock:'scissors',scissors:'paper',paper:'rock'}; m.battle.actor=beats[m.rps[0]] === m.rps[1] ? 0 : 1; m.phase='battle-action'; }
+      else { const beats={rock:'scissors',scissors:'paper',paper:'rock'}; m.battle.actor=beats[m.rps[0]] === m.rps[1] ? 0 : 1; m.phase='rps-result'; const hands={rock:'石头',paper:'布',scissors:'剪刀'}; log(m,`${playerName(m,0)}出${hands[m.rps[0]]}，${playerName(m,1)}出${hands[m.rps[1]]}；${playerName(m,m.battle.actor)}获得一次行动权。`); }
     }
   } else if (['attack','retreat'].includes(action.type)) battleAction(m,action);
   else throw new Error('未知操作');
@@ -156,10 +161,12 @@ export function dispatch(match,action,rng=Math.random) {
 }
 export function aiAction(m,p,rng=Math.random) {
   if (m.phase === 'select') return {type:'select',player:p,ids:shuffled(m.inventories[p],rng).slice(0,m.mode === 'point' ? 5 : 1).map(c => c.id)};
+  if (m.phase === 'lineup-reveal') return {type:'lineup-ready',player:p};
   if (m.phase === 'between') return {type:'decision',player:p,value:'continue'};
-  if (m.phase === 'point') return {type:'point',player:p,value:randomInt(6,rng)+1};
+  if (m.phase === 'point') return m.difficulty==='hard'?hardPointAction(m,p,rng):{type:'point',player:p,value:POINT_NUMBERS[randomInt(POINT_NUMBERS.length,rng)]};
   if (m.phase === 'rps') return {type:'rps',player:p,value:['rock','paper','scissors'][randomInt(3,rng)]};
   if (m.phase === 'battle-action') {
+    if(m.difficulty==='hard')return hardBattleAction(m,p,rng);
     const own=CARD[m.battle.cards[p]], other=CARD[m.battle.cards[1-p]], b=m.battle;
     const lethal=own.skills.findIndex(s => s.damage >= b.hp[1-p]);
     if (lethal >= 0) return {type:'attack',player:p,skill:lethal};

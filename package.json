@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
+    "build": "node scripts/build-deploy.mjs",
     "test": "node --test test/*.test.mjs"
   }
 }

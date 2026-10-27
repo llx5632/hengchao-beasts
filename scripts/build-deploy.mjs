@@ -1,7 +1,6 @@
 // 生成可静态托管的部署目录。
 // 结构：deploy/index.html + deploy/v<stamp>/（全部资源）。
-// 原因：托管端 CDN 会缓存裸路径资源、且拒绝带 query 的静态请求（403），
-// 所以用版本化子目录做缓存刷新；index.html 本身不缓存。
+// 用版本化子目录刷新资源缓存，入口通过相对 base 兼容 GitHub Pages 项目子路径。
 // 卡面压成 WebP（scripts/compress-art.py），全部相对路径 + ASCII 文件名。
 // 用法: node scripts/build-deploy.mjs
 import { readFile, writeFile, mkdir, rm, copyFile, readdir } from 'node:fs/promises';
@@ -19,6 +18,9 @@ const ext = hasWebp ? '.webp' : '.png';
 const artSrc = await readFile(join(dist, 'card-art.js'), 'utf8');
 const entries = [...artSrc.matchAll(/"([A-Za-z0-9_]+)":\s*"([^"]+)"/g)].map(([, id, p]) => ({ id, path: p }));
 if (!entries.length) throw new Error('未能解析 card-art.js 中的卡面映射');
+
+// 删除前限定目标为本项目的部署产物目录。
+if (out !== join(resolve(here, '..'), 'deploy')) throw new Error('部署输出目录超出预期范围');
 
 await rm(out, { recursive: true, force: true });
 const stamp = Date.now().toString(36);
@@ -57,8 +59,7 @@ await writeFile(join(body, 'cards.html'), cardsHtml);
 await rm(join(body, 'index.html'));
 
 const indexHtml = rel(await readFile(join(dist, 'index.html'), 'utf8'))
-  .replaceAll('"style.css"', `"v${stamp}/style.css"`)
-  .replaceAll('"app.js"', `"v${stamp}/app.js"`);
+  .replace('<head>', `<head>\n  <base href="./v${stamp}/">`);
 await writeFile(join(out, 'index.html'), indexHtml);
 
 const flat = (await readFile(join(body, 'app.js'), 'utf8')) + cardsHtml + indexHtml;

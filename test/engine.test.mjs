@@ -12,11 +12,12 @@ function battle(a='tanling',b='liejing'){
   m=turn(m,'select',1,{ids:[inv[1].find(c=>c.cardId===b).id]});
   return m.status==='active'?dispatch(m,{type:'advance'}):m;
 }
-function winAction(m,p=0){m=turn(m,'rps',0,{value:p===0?'rock':'scissors'});return turn(m,'rps',1,{value:p===0?'scissors':'rock'});}
+function winAction(m,p=0){m=turn(m,'rps',0,{value:p===0?'rock':'scissors'});m=turn(m,'rps',1,{value:p===0?'scissors':'rock'});return dispatch(m,{type:'advance'});}
 function point(a=STARTERS,b=STARTERS){
   const inv=[a.map((cardId,i)=>({id:`a-${i}`,cardId})),b.map((cardId,i)=>({id:`b-${i}`,cardId}))];
   let m=createMatch('point',inv);
   for(const p of [0,1])m=turn(m,'select',p,{ids:inv[p].map(c=>c.id)});
+  for(const p of [0,1])m=turn(m,'lineup-ready',p);
   return m;
 }
 function proceed(m){for(const p of [0,1])m=turn(m,'decision',p,{value:'continue'});return m;}
@@ -65,19 +66,23 @@ test('阻退只增加对方剩余值，上限基础值加二，拼点仍读基�
   m=dispatch(m,{type:'advance'});m=winAction(m);m=turn(m,'attack',0,{skill:1});assert.equal(m.battle.remaining[1],5);assert.equal(METRICS[2].read(CARD.genguan),3);
 });
 test('不同卡牌同分时公开、重选，仍属于同一小局且不先转移卡',()=>{
-  let m=proceed(point(['tanling','woxu','taituan','mingjing','zhiyi'],['zhiyi','tanling','woxu','taituan','mingjing']));
-  m=turn(m,'point',0,{value:1});assert.equal(m.phase,'point');assert.equal(m.point.revealed,false);
-  m=turn(m,'point',1,{value:1});assert.equal(m.phase,'point-tie');assert.equal(m.point.revealed,true);assert.equal(m.round,0);assert.equal(m.transfers.length,0);
+  let m=proceed(point(Array(5).fill('tanling'),Array(5).fill('zhiyi')));
+  m=turn(m,'point',0,{value:0});assert.equal(m.phase,'point');assert.equal(m.point.revealed,false);
+  m=turn(m,'point',1,{value:3});assert.equal(m.phase,'point-tie');assert.equal(m.point.revealed,true);assert.equal(m.round,0);assert.equal(m.transfers.length,0);
   m=dispatch(m,{type:'advance'});m=turn(m,'point',0,{value:2});m=turn(m,'point',1,{value:3});
   assert.equal(m.round,1);assert.equal(m.rounds[0].attempts,2);assert.equal(m.scores[0],1);assert.equal(m.transfers.length,1);assert.equal(m.hands[0].length,5);
 });
-test('点数边界与模六映射全部正确',()=>{
-  const seen=new Set();
-  for(let a=1;a<=6;a++)for(let b=1;b<=6;b++){
+test('49 种组合中双零单独平手，其余 48 种按六项各八种分配',()=>{
+  const seen=new Set(),bySum=[null,0,1,2,3,4,5,0,1,2,3,4,5],frequencies=Array(6).fill(0);let draws=0;
+  for(let a=0;a<=6;a++)for(let b=0;b<=6;b++){
     let m=proceed(point(Array(5).fill('tanling'),Array(5).fill('panjia')));m=turn(m,'point',0,{value:a});m=turn(m,'point',1,{value:b});
-    const comparison=m.point.comparisons[0];assert.equal(comparison.metric,(a+b)%6);seen.add(comparison.metric);
+    const comparison=m.point.comparisons[0];assert.equal(comparison.metric,bySum[a+b]);
+    if(comparison.metric===null){draws++;assert.equal(comparison.kind,'double-zero');assert.equal(comparison.values,null);}
+    else {seen.add(comparison.metric);frequencies[comparison.metric]++;}
   }
-  assert.equal(seen.size,6);let m=proceed(point(Array(5).fill('tanling'),Array(5).fill('panjia')));assert.throws(()=>turn(m,'point',0,{value:0}),/1～6/);assert.throws(()=>turn(m,'point',0,{value:7}),/1～6/);
+  assert.equal(draws,1);assert.deepEqual(frequencies,[8,8,8,8,8,8]);
+  assert.equal(seen.size,6);let m=proceed(point(Array(5).fill('tanling'),Array(5).fill('panjia')));
+  for(const value of [-1,7,.5,'0',NaN])assert.throws(()=>turn(m,'point',0,{value}),/0～6/);
 });
 test('五小局同卡全部跳过，最终平局，卡牌不重复使用',()=>{
   let m=point();
@@ -107,5 +112,37 @@ test('拼点完成保留五次赢卡，战利品不加入出战序列，所有�
 test('洗牌不修改原数组；随机选点始终在范围内且不依赖对手暗牌',()=>{
   const input=[1,2,3,4,5],copy=[...input];shuffled(input,()=>0);assert.deepEqual(input,copy);
   const m=proceed(point(Array(5).fill('tanling'),Array(5).fill('zhiyi')));
-  assert.equal(aiAction(m,0,()=>0).value,1);assert.equal(aiAction(m,0,()=>.999999).value,6);
+  assert.equal(aiAction(m,0,()=>0).value,0);assert.equal(aiAction(m,0,()=>.999999).value,6);
+});
+
+test('零点同样保密并记录；双零亮牌重比，其余整六和仍比体重',()=>{
+  for(const numbers of [[0,0],[0,6],[6,0],[6,6]]){
+    let m=proceed(point(Array(5).fill('tanling'),Array(5).fill('panjia')));
+    m=turn(m,'point',0,{value:numbers[0]});
+    assert.equal(m.phase,'point');assert.equal(m.point.revealed,false);assert.equal(m.pointHistory,undefined);
+    assert.deepEqual(expectedPlayers(m),[1]);
+    assert.throws(()=>turn(m,'point',0,{value:1}),/已经提交/);
+    m=turn(m,'point',1,{value:numbers[1]});
+    if(numbers.every(n=>n===0)){
+      assert.equal(m.phase,'point-tie');assert.equal(m.point.revealed,true);assert.equal(m.point.comparisons[0].metric,null);
+      assert.equal(m.round,0);assert.equal(m.transfers.length,0);assert.deepEqual(m.scores,[0,0]);
+    }else {assert.equal(m.phase,'round-result');assert.equal(m.point.comparisons[0].metric,5);assert.equal(m.rounds[0].winner,1);}
+    assert.deepEqual(m.point.comparisons[0].numbers,numbers);assert.deepEqual(m.pointHistory,[numbers]);
+  }
+});
+
+test('连续双零使用原卡和原队列，刷新兼容，正常比较后只结算一次',()=>{
+  let m=proceed(point(Array(5).fill('tanling'),Array(5).fill('panjia')));
+  const cards=structuredClone(m.point.cards),hands=structuredClone(m.hands),inventories=structuredClone(m.inventories);
+  for(let i=0;i<2;i++){
+    m=turn(m,'point',0,{value:0});m=turn(m,'point',1,{value:0});
+    assert.equal(m.phase,'point-tie');assert.equal(m.point.revealed,true);assert.equal(m.round,0);assert.equal(m.transfers.length,0);
+    assert.deepEqual(m.point.cards,cards);assert.deepEqual(m.hands,hands);assert.deepEqual(m.inventories,inventories);
+    m=JSON.parse(JSON.stringify(m));m=dispatch(m,{type:'advance'});
+    assert.equal(m.phase,'point');assert.equal(m.point.revealed,true);assert.deepEqual(m.picks,[null,null]);
+  }
+  m=turn(m,'point',0,{value:1});m=turn(m,'point',1,{value:1});
+  assert.equal(m.phase,'round-result');assert.equal(m.round,1);assert.equal(m.rounds[0].winner,1);
+  assert.equal(m.rounds[0].attempts,3);assert.equal(m.transfers.length,1);assert.deepEqual(m.scores,[0,1]);
+  assert.deepEqual(m.pointHistory,[[0,0],[0,0],[1,1]]);
 });

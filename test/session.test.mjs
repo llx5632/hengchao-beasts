@@ -7,6 +7,7 @@ import {aiAction,dispatch,expectedPlayers} from '../dist/engine.js';
 test('本地首版双方直接持有全部十五种卡，各一个独立实例',()=>{
   const session=freshSession();
   assert.equal(session.version,2);
+  assert.equal(session.autoAdvance,true);
   assert.notEqual(SAVE_KEY,'hengchao-local-v1');
   for(const player of session.players){
     assert.equal(player.cards.length,15);
@@ -42,7 +43,7 @@ test('玩家对 AI 的五小局流程可完成，赢卡结果仍保留且不修�
   while(m.status==='active'&&steps++<120){
     const expected=expectedPlayers(m);
     if(expected.includes(1))m=dispatch(m,aiAction(m,1,()=>.999),()=>.999);
-    else if(expected.includes(0))m=dispatch(m,{type:m.phase==='between'?'decision':'point',player:0,value:m.phase==='between'?'continue':1},()=>.999);
+    else if(expected.includes(0))m=dispatch(m,m.phase==='lineup-reveal'?{type:'lineup-ready',player:0}:{type:m.phase==='between'?'decision':'point',player:0,value:m.phase==='between'?'continue':steps%7},()=>.999);
     else m=dispatch(m,{type:'advance'},()=>.999);
   }
   assert.equal(m.status,'finished');
