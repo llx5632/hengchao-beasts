@@ -1,5 +1,10 @@
 import { CARD } from './data.js';
 
+// Also recognizes older saved surrender results that still contain stale feedback.
+export function battleEndedBySurrender(match) {
+  return Boolean(match.mode==='battle'&&match.status==='finished'&&match.transfers?.some(t=>t.reason==='战斗投降'));
+}
+
 // Shared by actual combat and AI lookahead, so effects and terminal results agree.
 export function resolveCombatAction(battle, player, action) {
   const state={...battle,hp:[...battle.hp],remaining:[...battle.remaining]}, other=1-player;

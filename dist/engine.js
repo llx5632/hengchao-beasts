@@ -115,6 +115,7 @@ export function dispatch(match,action,rng=Math.random) {
   check([0,1].includes(p),'未知玩家');
   if (action.type === 'surrender') {
     check(m.mode === 'battle' && m.battle,'战斗亮牌后方可主动投降');
+    m.battle.last=null;m.battle.actor=null;m.rps=[null,null];
     transfer(m,p,m.hands[p][0].id,'战斗投降'); finish(m,1-p,`${playerName(m,p)} 主动投降，失去当前出战卡`); return m;
   }
   check(expectedPlayers(m).includes(p),'这位玩家当前不能提交或已经提交');

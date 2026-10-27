@@ -4,7 +4,7 @@ import { SAVE_KEY, freshSession, createLocalMatch } from './session.js';
 import { DIFFICULTIES, normalizeDifficulty } from './ai.js';
 import { scheduledStep } from './flow.js';
 import { SELECTION_SORTS, selectionCards, selectionSummary } from './selection.js';
-import { previewSkill } from './combat.js';
+import { previewSkill, battleEndedBySurrender } from './combat.js';
 import { selectionDraft, normalizePresets, createPreset, resolvePreset, canLeaveSelection } from './roster.js';
 
 const KEY=SAVE_KEY, app=document.querySelector('#app');
@@ -20,11 +20,12 @@ if(store.match)store.match.difficulty=normalizeDifficulty(store.match.difficulty
 let route=store.match&&!(store.selectionLobby&&canLeaveSelection(store.match)) ? 'match' : 'home', draft=selectionDraft(store.match), filter='全部', owner=0, timer=null, toastTimer=null, previewCardId=null, paused=false;
 let selectionElement='全部',selectionSort='default',selectionAscending=false,selectedOnly=false,draftOverviewOpen=false;
 let presetsOpen=false,draftNotice=draft.length?'已恢复上次未封存的选卡。':'';
+let storageFailed=false,readingOpen={log:false,lineup:false};
 const name=p => store.players[p].name;
 const esc=value => String(value).replace(/[&<>"']/g,c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const btn=(text,action,cls='',attrs='') => `<button class="btn ${cls}" data-action="${action}" ${attrs}>${text}</button>`;
-function save(){try{localStorage.setItem(KEY,JSON.stringify(store));}catch{toast('浏览器存储不可用，本次数据仅保留在当前页面。');}}
-function saveDraft(){store.match.selectionDraft=[...draft];store.selectionDrafts[store.match.mode]=[...draft];save();}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(store));storageFailed=false;return true;}catch{storageFailed=true;toast('存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。');return false;}}
+function saveDraft(){store.match.selectionDraft=[...draft];store.selectionDrafts[store.match.mode]=[...draft];return save();}
 function toast(text){const el=document.querySelector('#toast');el.textContent=text;el.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.display='none',4200);}
 function modal(title,body,action=null,label='确定'){
   const d=document.querySelector('#dialog');
@@ -79,7 +80,7 @@ function catalog(){
 }
 function scoreboard(m){return `<div class="scoreboard"><div class="player"><strong>${name(0)}</strong><span class="badge">${m.controls[0]==='ai'?'AI 代出':'本地玩家'}</span><small>持有 ${m.inventories[0].length} 张${m.mode==='point'?` · 已胜 ${m.scores[0]} 小局`:''}</small></div><div class="score">${m.mode==='point'?`${m.scores[0]}<span>:</span>${m.scores[1]}`:'VS'}</div><div class="player"><strong>${name(1)}</strong><span class="badge">AI 对手 · ${DIFFICULTIES[normalizeDifficulty(m.difficulty)].label}</span><small>持有 ${m.inventories[1].length} 张${m.mode==='point'?` · 已胜 ${m.scores[1]} 小局`:''}</small></div></div>`;}
 function track(m,p=0){return `<div class="round-track">${[0,1,2,3,4].map(i=>{const r=m.rounds[i];return `<div class="round-cell"><small>第 ${i+1} 小局</small><b class="${r?.kind==='win'?(r.winner===p?'win':'loss'):''}">${!r?'—':r.kind==='same'?'＝':r.winner===p?'√':'×'}</b><span>${!r?'未进行':r.kind==='same'?'同卡跳过':r.winner===p?'获胜':'失利'}</span></div>`;}).join('')}</div>`;}
-function battleBoard(m){const side=p=>{const c=CARD[m.battle.cards[p]];const visual=store.battleCompact?`<button class="combat-card" data-action="zoom" data-card="${c.id}" aria-label="放大${c.name}完整卡面"><img src="/art/${encodeURIComponent(c.art)}" alt="${c.name}卡面缩略图"><span><strong>${c.name}</strong><small>${c.element} · ${c.tier} · 点击查看完整卡面</small></span></button>`:playedCard(c);return `<div class="battle-combatant">${visual}${battleState(c,m.battle,p,['battle-turn','finished'].includes(m.phase))}</div>`;};return `<div class="board ${store.battleCompact?'compact-board':''}" aria-label="双方战斗状态">${side(0)}<span class="versus">VS</span>${side(1)}</div>`;}
+function battleBoard(m){const side=p=>{const c=CARD[m.battle.cards[p]];const visual=store.battleCompact?`<button class="combat-card" data-action="zoom" data-card="${c.id}" aria-label="放大${c.name}完整卡面"><img src="/art/${encodeURIComponent(c.art)}" alt="${c.name}卡面缩略图"><span><strong>${c.name}</strong><small>${c.element} · ${c.tier} · 点击查看完整卡面</small></span></button>`:playedCard(c);return `<div class="battle-combatant">${visual}${battleState(c,m.battle,p,['battle-turn','finished'].includes(m.phase)&&!battleEndedBySurrender(m))}</div>`;};return `<div class="board ${store.battleCompact?'compact-board':''}" aria-label="双方战斗状态">${side(0)}<span class="versus">VS</span>${side(1)}</div>`;}
 function pointBoard(m,p,both=false){return `<div class="board">${both||p===0?playedCard(CARD[m.point.cards[0].cardId]):hiddenCard()}<span class="versus">VS</span>${both||p===1?playedCard(CARD[m.point.cards[1].cardId]):hiddenCard()}</div>`;}
 function lineupPreview(m){
   const canConfirm=m.controls[0]==='human'&&!m.lineupReady[0];
@@ -88,19 +89,19 @@ function lineupPreview(m){
 function lineupReference(m){
   if(m.mode!=='point'||!m.lineups||m.phase==='lineup-reveal')return '';
   const played=new Set(m.rounds.flatMap(r=>r.cards.map(c=>c.id)));
-  return `<details class="lineup-reference"><summary>查看公开阵容与已出场卡</summary><p>仅标记已结束小局的出场卡；未结算卡的顺序保持保密。</p>${m.lineups.map((cards,p)=>`<section aria-label="${name(p)}的阵容记录"><h3>${name(p)} · ${cards.filter(c=>!played.has(c.id)).length} 张未结算</h3><div class="lineup-reference-grid">${cards.map(i=>`<button class="lineup-note ${played.has(i.id)?'used':''}" data-action="zoom" data-card="${i.cardId}" aria-label="查看${name(p)}阵容中的${CARD[i.cardId].name}"><strong>${CARD[i.cardId].name}</strong><span>${CARD[i.cardId].element} · ${played.has(i.id)?'已出场':'未结算'}</span></button>`).join('')}</div></section>`).join('')}</details>`;
+  return `<details class="lineup-reference" ${readingOpen.lineup?'open':''}><summary>查看公开阵容与已出场卡</summary><p>仅标记已结束小局的出场卡；未结算卡的顺序保持保密。</p>${m.lineups.map((cards,p)=>`<section aria-label="${name(p)}的阵容记录"><h3>${name(p)} · ${cards.filter(c=>!played.has(c.id)).length} 张未结算</h3><div class="lineup-reference-grid">${cards.map(i=>`<button class="lineup-note ${played.has(i.id)?'used':''}" data-action="zoom" data-card="${i.cardId}" aria-label="查看${name(p)}阵容中的${CARD[i.cardId].name}"><strong>${CARD[i.cardId].name}</strong><span>${CARD[i.cardId].element} · ${played.has(i.id)?'已出场':'未结算'}</span></button>`).join('')}</div></section>`).join('')}</details>`;
 }
 function metricStrip(current=-1){return `<div class="metric-table" aria-label="六个比拼项">${METRICS.map((metric,i)=>`<div class="${i===current?'current':''}"><strong>${i+1}</strong>${metric.name}</div>`).join('')}</div>`;}
 const rpsNames={rock:'石头',scissors:'剪刀',paper:'布'};
 const rpsGlyphs={rock:'◉',scissors:'✂',paper:'▤'};
 function rpsResult(m){
-  if(!m.rps.every(Boolean))return '';
+  if(battleEndedBySurrender(m)||!m.rps.every(Boolean))return '';
   const tie=m.rps[0]===m.rps[1],winner=tie?null:m.battle.actor;
   if(store.battleCompact&&['battle-action','battle-turn','finished'].includes(m.phase))return `<div class="rps-inline" role="status"><span>${name(0)} ${rpsGlyphs[m.rps[0]]} ${rpsNames[m.rps[0]]}</span><span>${name(1)} ${rpsGlyphs[m.rps[1]]} ${rpsNames[m.rps[1]]}</span><strong>${tie?'平手':`${name(winner)} 获得行动权`}</strong></div>`;
   return `<div class="rps-reveal" role="status"><div class="rps-hands">${[0,1].map(p=>`<div class="rps-hand ${winner===p?'rps-winner':''}"><small>${name(p)}</small><b aria-hidden="true">${rpsGlyphs[m.rps[p]]}</b><span>${rpsNames[m.rps[p]]}</span><em>${tie?'平手':winner===p?'获胜 · 获得行动权':'未获得行动权'}</em></div>`).join('')}</div><p>${tie?'双方平手，均不行动，重新猜拳。':`${name(winner)} 获得一次行动权，执行一次进攻或撤退。`}</p></div>`;
 }
 function actionFeedback(m){
-  const last=m.battle?.last;if(!last)return '';
+  const last=battleEndedBySurrender(m)?null:m.battle?.last;if(!last)return '';
   const changes=last.before&&last.after?[0,1].flatMap(p=>['hp','remaining'].flatMap(field=>{const before=last.before[field][p],after=last.after[field][p];if(before===after)return [];return [`<div><span>${name(p)} · ${field==='hp'?'剩余 HP':'剩余撤退'}</span><strong>${before} → ${after} ${stateChange(last,field,p)}</strong></div>`];})).join(''):'';
   return `<div class="action-feedback" role="status"><strong>${name(last.player)} · ${esc(last.text)}</strong>${changes?`<div class="change-list">${changes}</div>`:''}</div>`;
 }
@@ -115,7 +116,7 @@ function draftOverview(m,p,count){
 }
 function presetTools(m,p,count){
   const presets=store.lineupPresets.filter(preset=>preset.mode===m.mode);
-  return `<section class="preset-tools" aria-label="选卡保存与常用阵容"><div class="preset-save"><p role="status">${draftNotice?`${esc(draftNotice)} `:''}未封存的选择自动保存，刷新后可恢复。</p>${btn('保存为常用阵容','save-preset','ghost small',draft.length===count?'':'disabled')}</div><details class="preset-list" ${presetsOpen?'open':''}><summary>常用阵容 · ${presets.length} 套${m.mode==='battle'?'单卡方案':'五张阵容'}</summary>${presets.length?presets.map(preset=>{const result=resolvePreset(preset,m.inventories[p]);return `<div class="preset-row"><div><strong>${esc(preset.name)}</strong><p>${preset.cardIds.map(id=>CARD[id].name).join(' · ')}</p><small class="${result.missing.length?'preset-missing':''}">${result.missing.length?`缺少 ${result.missing.length} 张：${result.missing.map(id=>CARD[id].name).join('、')}`:'当前持有卡牌齐全'}</small></div><div class="toolbar">${btn(result.missing.length?'载入已有卡':'载入阵容','load-preset','ghost small',`data-preset="${esc(preset.id)}" aria-label="载入${esc(preset.name)}"`)}${btn('删除','delete-preset','ghost small',`data-preset="${esc(preset.id)}" aria-label="删除${esc(preset.name)}"`)}</div></div>`;}).join(''):'<p class="subtle">选齐出战卡后可保存，供之后的同模式对局使用。</p>'}</details></section>`;
+  return `<section class="preset-tools" aria-label="选卡保存与常用阵容"><div class="preset-save"><p role="status">${draftNotice?`${esc(draftNotice)} `:''}${storageFailed?'当前选择尚未写入存档，请重试保存。':'未封存的选择自动保存，刷新后可恢复。'}</p>${btn('保存为常用阵容','save-preset','ghost small',draft.length===count?'':'disabled')}</div><details class="preset-list" ${presetsOpen?'open':''}><summary>常用阵容 · ${presets.length} 套${m.mode==='battle'?'单卡方案':'五张阵容'}</summary>${presets.length?presets.map(preset=>{const result=resolvePreset(preset,m.inventories[p]);return `<div class="preset-row"><div><strong>${esc(preset.name)}</strong><p>${preset.cardIds.map(id=>CARD[id].name).join(' · ')}</p><small class="${result.missing.length?'preset-missing':''}">${result.missing.length?`缺少 ${result.missing.length} 张：${result.missing.map(id=>CARD[id].name).join('、')}`:'当前持有卡牌齐全'}</small></div><div class="toolbar">${btn(result.missing.length?'载入已有卡':'载入阵容','load-preset','ghost small',`data-preset="${esc(preset.id)}" aria-label="载入${esc(preset.name)}"`)}${btn('删除','delete-preset','ghost small',`data-preset="${esc(preset.id)}" aria-label="删除${esc(preset.name)}"`)}</div></div>`;}).join(''):'<p class="subtle">选齐出战卡后可保存，供之后的同模式对局使用。</p>'}</details></section>`;
 }
 function skillButton(battle,p,skill,index){
   const actual=previewSkill(battle,p,index),effectName=skill.effect==='heal'?'回血':'阻退';
@@ -173,9 +174,12 @@ function finalView(m){
 function flowOptions(){return {autoAdvance:store.autoAdvance,paused,dialogOpen:!!document.querySelector('dialog[open], .log[open], .lineup-reference[open]'),hidden:document.hidden};}
 function flowControls(m){
   if(m.status!=='active')return '';
-  const step=scheduledStep(m,flowOptions());
-  const status=paused?'已暂停自动处理，可手动操作。':m.phase==='lineup-reveal'&&!m.lineupReady[0]&&m.controls[0]==='human'?'查看阵容后请手动确认，不会自动洗牌。':step?.kind==='advance'?`约 ${step.delay/1000} 秒后继续，也可点击下方按钮。`:step?.kind==='ai'?'等待 AI 提交。':expectedPlayers(m).includes(0)?'等待你的选择，不会自动提交。':'手动推进：点击下方按钮继续。';
+  const status=flowStatus(m);
   return `<div class="flow-controls"><div class="toolbar">${btn('自动推进','auto-toggle',`ghost small ${store.autoAdvance?'enabled':''}`,`role="switch" aria-checked="${store.autoAdvance}"`)}${btn(paused?'继续自动处理':'暂停自动处理','pause','ghost small',`aria-pressed="${paused}"`)}</div><small role="status">${status}</small></div>`;
+}
+function flowStatus(m){
+  const options=flowOptions(),step=scheduledStep(m,options);
+  return paused?'已暂停自动处理，可手动操作。':options.dialogOpen?'正在查看内容，自动处理已暂停。':m.phase==='lineup-reveal'&&!m.lineupReady[0]&&m.controls[0]==='human'?'查看阵容后请手动确认，不会自动洗牌。':step?.kind==='advance'?`约 ${step.delay/1000} 秒后继续，也可点击下方按钮。`:step?.kind==='ai'?'等待 AI 提交。':expectedPlayers(m).includes(0)?'等待你的选择，不会自动提交。':'手动推进：点击下方按钮继续。';
 }
 function matchView(){
   const m=store.match;
@@ -184,14 +188,19 @@ function matchView(){
   const battleView=m.mode==='battle'&&m.battle;
   const tools=(canLeaveSelection(m)?btn('返回对局大厅','home','ghost small'):'')+(battleView?btn(store.battleCompact?'切换完整视图':'切换紧凑视图','battle-layout','ghost small',`aria-pressed="${store.battleCompact}"`):'')+(m.status==='active'?btn(m.controls[0]==='ai'?'恢复自己操作':'暂离 / AI代出','control','ghost small')+(battleView?btn('投降','battle-surrender','danger small'):''):'');
   const content=m.status==='finished'?finalView(m):myTurn?privateTurn(m,0):sharedTurn(m);
-  return `<main class="wrap ${battleView?'battle-match':''} ${battleView&&store.battleCompact?'compact':''}"><div class="match-head"><div><div class="eyebrow">${m.mode==='battle'?'相性决斗 / BATTLE':'衡量试炼 / POINT DUEL'}</div><h2>${m.status==='finished'?'对局结果':m.mode==='battle'?'相性决斗':m.phase==='lineup-reveal'?'衡量试炼 · 阵容展示':`衡量试炼 · ${Math.min(m.phase==='round-result'?m.round:m.round+1,5)} / 5`}</h2></div><div class="match-tools">${tools}</div></div>${scoreboard(m)}${flowControls(m)}${battleView&&store.battleCompact&&m.status==='active'?`<div class="combat-layout">${content}</div>`:content}${lineupReference(m)}<details class="log"><summary>查看已公开的对局记录（${m.history.length}）</summary><ol>${m.history.map(t=>`<li>${esc(t)}</li>`).join('')}</ol></details></main>`;
+  return `<main class="wrap ${battleView?'battle-match':''} ${battleView&&store.battleCompact?'compact':''}"><div class="match-head"><div><div class="eyebrow">${m.mode==='battle'?'相性决斗 / BATTLE':'衡量试炼 / POINT DUEL'}</div><h2>${m.status==='finished'?'对局结果':m.mode==='battle'?'相性决斗':m.phase==='lineup-reveal'?'衡量试炼 · 阵容展示':`衡量试炼 · ${Math.min(m.phase==='round-result'?m.round:m.round+1,5)} / 5`}</h2></div><div class="match-tools">${tools}</div></div>${scoreboard(m)}${flowControls(m)}${battleView&&store.battleCompact&&m.status==='active'?`<div class="combat-layout">${content}</div>`:content}${lineupReference(m)}<details class="log" ${readingOpen.log?'open':''}><summary>查看已公开的对局记录（${m.history.length}）</summary><ol>${m.history.map(t=>`<li>${esc(t)}</li>`).join('')}</ol></details></main>`;
 }
-function render(){app.innerHTML=`<div class="shell">${header()}${route==='match'?matchView():route==='home'?home():catalog()}${footer()}</div>`;scheduleAI();}
+function render({resetReading=false}={}){
+  if(resetReading)readingOpen={log:false,lineup:false};
+  else for(const [key,selector] of [['log','.log'],['lineup','.lineup-reference']]){const node=document.querySelector(selector);if(node)readingOpen[key]=node.open;}
+  app.innerHTML=`<div class="shell">${header()}${storageFailed?`<div class="save-warning" role="alert"><span>存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。</span>${btn('重试保存','retry-save','ghost small')}</div>`:''}${route==='match'?matchView():route==='home'?home():catalog()}${footer()}</div>`;scheduleAI();
+}
 function send(action){try{const beforePhase=store.match.phase;store.match=dispatch(store.match,action);store.players.forEach((p,i)=>p.cards=structuredClone(store.match.inventories[i]));draft=selectionDraft(store.match);if(store.match.phase!=='select'||store.match.selections[0]!==null){delete store.match.selectionDraft;delete store.selectionDrafts[store.match.mode];draftNotice='';}save();render();if(beforePhase!==store.match.phase){if(store.match.phase==='lineup-reveal')window.scrollTo(0,0);else if(store.match.mode==='battle'&&store.battleCompact)document.querySelector('.combat-layout')?.scrollIntoView({block:'start'});}}catch(error){toast(error.message);}}
 function scheduleAI(){
   clearTimeout(timer);
   const m=store.match;
   if(route!=='match')return;
+  const status=document.querySelector('.flow-controls [role="status"]');if(status&&m?.status==='active')status.textContent=flowStatus(m);
   const step=scheduledStep(m,flowOptions());if(!step)return;
   timer=setTimeout(()=>{
     if(store.match!==m||route!=='match')return;
@@ -210,7 +219,7 @@ function start(mode){
     else{store.match=createLocalMatch(mode,store.players,store.difficulty);store.match.selectionDraft=store.selectionDrafts[mode];}
     draft=selectionDraft(store.match);store.match.selectionDraft=[...draft];store.selectionLobby=false;route='match';previewCardId=null;paused=false;
     selectionElement='全部';selectionSort='default';selectionAscending=false;selectedOnly=false;draftOverviewOpen=false;draftNotice=draft.length?'已恢复未封存的选卡。':'';presetsOpen=false;
-    save();render();window.scrollTo(0,0);
+    save();render({resetReading:true});window.scrollTo(0,0);
   }catch(e){toast(e.message);}
 }
 document.addEventListener('click',event=>{
@@ -218,6 +227,7 @@ document.addEventListener('click',event=>{
   const a=target.dataset.action,m=store.match,p=0;
   if(a==='close-dialog'){document.querySelector('#dialog').close();return;}
   if(a==='close-card'){document.querySelector('#card-dialog').close();return;}
+  if(a==='retry-save'){const saved=save();render();if(saved)toast('已成功写入浏览器存档。');return;}
   if(a==='zoom')return openCard(target.dataset.card);
   if(a==='battle-layout'){store.battleCompact=!store.battleCompact;save();render();document.querySelector('.battle-match')?.scrollIntoView({block:'start'});return;}
   if(a==='save-preset'){
@@ -226,7 +236,7 @@ document.addEventListener('click',event=>{
     modal('保存常用阵容',`<p>按异兽种类与张数保存，下次匹配当前持有的副本，不会自动封存出战。</p><p>${draft.map(id=>CARD[m.inventories[0].find(i=>i.id===id).cardId].name).join(' · ')}</p><label class="preset-name-label" for="preset-name">阵容名称<input id="preset-name" maxlength="20" value="${modeName} ${store.lineupPresets.filter(s=>s.mode===m.mode).length+1}" autocomplete="off"></label>`,'confirm-save-preset','保存阵容');return;
   }
   if(a==='confirm-save-preset'){
-    try{store.lineupPresets.push(createPreset(crypto.randomUUID(),document.querySelector('#preset-name').value,m.mode,m.inventories[0],draft));presetsOpen=true;save();document.querySelector('#dialog').close();render();toast('已保存常用阵容。');}catch(error){toast(error.message);}return;
+    try{const preset=createPreset(crypto.randomUUID(),document.querySelector('#preset-name').value,m.mode,m.inventories[0],draft);store.lineupPresets.push(preset);if(!save()){store.lineupPresets.pop();render();return;}presetsOpen=true;document.querySelector('#dialog').close();render();toast('已保存常用阵容。');}catch(error){toast(error.message);}return;
   }
   if(a==='load-preset'){
     const preset=store.lineupPresets.find(s=>s.id===target.dataset.preset&&s.mode===m?.mode);
@@ -235,7 +245,7 @@ document.addEventListener('click',event=>{
     draftNotice=result.missing.length?`已载入 ${draft.length} 张，缺少 ${result.missing.length} 张：${result.missing.map(id=>CARD[id].name).join('、')}。`:`已载入“${preset.name}”，请检查后封存。`;
     selectionElement='全部';selectedOnly=false;saveDraft();render();return;
   }
-  if(a==='delete-preset'){store.lineupPresets=store.lineupPresets.filter(s=>s.id!==target.dataset.preset);save();render();toast('已删除常用阵容，当前选卡保留。');return;}
+  if(a==='delete-preset'){store.lineupPresets=store.lineupPresets.filter(s=>s.id!==target.dataset.preset);const saved=save();render();if(saved)toast('已删除常用阵容，当前选卡保留。');return;}
   if(a==='preview-card'){previewCardId=target.dataset.card;render();if(matchMedia('(max-width: 800px)').matches)document.querySelector('.selection-preview').scrollIntoView({block:'start'});return;}
   if(a==='auto-toggle'){store.autoAdvance=!store.autoAdvance;save();render();return;}
   if(a==='pause'){paused=!paused;render();return;}
@@ -294,6 +304,6 @@ for(const d of document.querySelectorAll('dialog')){
   d.addEventListener('close',scheduleAI);
   d.addEventListener('click',event=>{if(event.target!==d)return;const r=d.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)d.close();});
 }
-document.addEventListener('visibilitychange',()=>{if(route==='match')render();else scheduleAI();});
-document.addEventListener('toggle',event=>{if(!event.target.isConnected)return;if(event.target.matches?.('.preset-list')){presetsOpen=event.target.open;return;}if(event.target.matches?.('.draft-overview')){draftOverviewOpen=event.target.open;return;}if(event.target.matches?.('.log, .lineup-reference')){if(event.target.open){clearTimeout(timer);}else scheduleAI();}},true);
+document.addEventListener('visibilitychange',scheduleAI);
+document.addEventListener('toggle',event=>{if(!event.target.isConnected)return;if(event.target.matches?.('.preset-list')){presetsOpen=event.target.open;return;}if(event.target.matches?.('.draft-overview')){draftOverviewOpen=event.target.open;return;}if(event.target.matches?.('.log, .lineup-reference')){readingOpen[event.target.matches('.log')?'log':'lineup']=event.target.open;scheduleAI();}},true);
 render();
