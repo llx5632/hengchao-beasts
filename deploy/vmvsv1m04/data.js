@@ -16,6 +16,10 @@ const rows = [
   ['zhiyi','纸翼','风','低阶',55,1,.25,.4,'薄翼小雀，轻盈易退，以羽片和小股气流攻击。',hit('纸羽飞刃',15),hit('风切穿刺',20)],
   ['fuyun','负云长鬃驼','风','高阶',135,3,3.6,180,'气囊长鬃如背负云朵，调节呼吸以恢复体力。',hit('云鬃撞击',40),hit('蓄风回息',20,'heal',15)],
   ['xuanjiao','旋角羚','风','中阶',88,2,1.6,42,'螺旋长角导流，步伐扬起旋风扰乱退路。',hit('风切突角',40),hit('回旋踏岚',25,'delay',1),'旋角羚_浮岛风境卡牌.png'],
+  ['xianbei','弦背猞猁','风','中阶',100,2,.85,28,'伏于海雾苇丛，背筋如弦，收身后骤然扑出。',hit('蓄势扑击',15,'charge',30),hit('裂风突袭',35,'burst',30)],
+  ['dielin','叠鳞獾','岩','中阶',115,3,.65,38,'层层肩鳞遇袭合拢，护住钻行碎岩的身体。',hit('迎击护壳',20,'shield',15),hit('掘岩爪击',40)],
+  ['jinzong','烬鬃','火','中阶',120,3,1.05,160,'鬃根蓄热，受迫时升温，獠牙冲破围困。',hit('焰鬃冲撞',45),hit('绝境反扑',30,'desperate',60)],
+  ['mingnang','鸣囊海豹','水','中阶',130,3,.9,140,'颈囊储存受击震动，借潮声释放回响。',hit('借势回响',25,'echo',30),hit('鳍尾拍浪',40)],
 ];
 export const BEATS = Object.freeze({ 火:'草', 草:'岩', 岩:'风', 风:'水', 水:'火' });
 export const ELEMENTS = Object.freeze(['火','水','草','岩','风']);
@@ -33,7 +37,7 @@ export const METRICS = Object.freeze([
 ]);
 // Sum 0 is the reveal-and-repick draw; positive sums cycle through items 1..6.
 export const pointMetricIndex = sum => sum===0 ? null : (sum + METRICS.length - 1) % METRICS.length;
-export const skillText = s => `${s.damage} 伤害${s.effect === 'heal' ? ` · 自己回血 ${s.amount}` : s.effect === 'delay' ? ` · 对方剩余撤退 +${s.amount}` : ''}`;
+export const skillText = s => `${s.damage} 伤害${({heal:` · 自己回血 ${s.amount}`,delay:` · 对方剩余撤退 +${s.amount}`,charge:' · 下一次裂风突袭＋30，不叠加',burst:' · 蓄势时65伤害，用后清除',shield:' · 获得下次受击减伤15的护盾，不叠加',desperate:' · 自己剩余HP≤60时改为60伤害',echo:' · 追加上次实际受伤量的一半，向下取整、最多＋30，用后清除'})[s.effect]??''}`;
 export function inventory(player, laboratory = false) {
   const ids = laboratory ? CARDS.flatMap(c => [c.id,c.id]) : STARTERS;
   return ids.map((cardId,i) => ({ id:`${player}-${laboratory ? 'lab' : 'start'}-${i}`, cardId }));

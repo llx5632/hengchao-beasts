@@ -5,7 +5,7 @@ import os, re, sys
 
 here = os.path.dirname(os.path.abspath(__file__))
 dist = os.path.join(here, '..', 'dist')
-src = os.path.join(here, '..', '..', '卡牌', '当前卡面')
+src = os.path.join(here, '..', '..', '卡牌')
 out = os.path.join(here, '..', 'deploy-art')
 width = int(sys.argv[1]) if len(sys.argv) > 1 else 1024
 quality = int(sys.argv[2]) if len(sys.argv) > 2 else 85
@@ -17,7 +17,7 @@ if not pairs:
 
 os.makedirs(out, exist_ok=True)
 for cid, rel in pairs:
-    name = rel.split('/')[-1]
+    name = rel
     im = Image.open(os.path.join(src, name)).convert('RGBA')
     w, h = im.size
     if w > width:

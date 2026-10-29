@@ -27,7 +27,7 @@ test('难度默认简单，旧值兼容，新对局和序列化保留高难度',
   assert.equal(m.difficulty,'hard');
   assert.equal(JSON.parse(JSON.stringify(m)).difficulty,'hard');
   assert.deepEqual(m.controls,['human','ai']);
-  assert.deepEqual(session.players.map(p=>p.cards.length),[15,15]);
+  assert.deepEqual(session.players.map(p=>p.cards.length),[CARDS.length,CARDS.length]);
 });
 
 test('简单模式保持随机选点猜拳及原有基础战斗判断',()=>{
@@ -157,8 +157,8 @@ for(const mode of ['point','battle'])test(`高难度 ${mode} 可完整结算，�
     }
     assert.equal(m.status,'finished',`run ${run} 未结束`);
     assert.equal(m.difficulty,'hard');
-    assert.equal(m.inventories.flat().length,30);
-    assert.equal(new Set(m.inventories.flat().map(c=>c.id)).size,30);
+    assert.equal(m.inventories.flat().length,CARDS.length*2);
+    assert.equal(new Set(m.inventories.flat().map(c=>c.id)).size,CARDS.length*2);
     if(mode==='point')assert.equal(m.rounds.length,5);
   }
 });

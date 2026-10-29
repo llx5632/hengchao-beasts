@@ -50,7 +50,7 @@ export function hardBattleAction(match,player,rng=Math.random) {
     return depth===0?heuristic(result.state):nextTurn(result.state,depth-1);
   }
   function nextTurn(state,depth) {
-    const key=`${depth}:${state.hp.join(',')}:${state.remaining.join(',')}`;
+    const key=`${depth}:${state.hp.join(',')}:${state.remaining.join(',')}:${JSON.stringify([state.charge,state.shield,state.echo])}`;
     if(memo.has(key))return memo.get(key);
     const mine=Math.max(...actions.map(a=>afterAction(state,player,a,depth)));
     const theirs=Math.min(...actions.map(a=>afterAction(state,other,a,depth)));
@@ -65,7 +65,7 @@ export function hardBattleAction(match,player,rng=Math.random) {
   const gain=action=>{
     if(action.type==='retreat')return .1;
     const next=resolveCombatAction(match.battle,player,action).state;
-    return match.battle.hp[other]-next.hp[other]+next.hp[player]-match.battle.hp[player]+5*(next.remaining[other]-match.battle.remaining[other]);
+    return match.battle.hp[other]-next.hp[other]+next.hp[player]-match.battle.hp[player]+5*(next.remaining[other]-match.battle.remaining[other])+(next.charge[player]&&!match.battle.charge?.[player]?20:0)+(next.shield[player]-(match.battle.shield?.[player]??0));
   };
   const bestGain=Math.max(...candidates.map(gain));
   return {...randomItem(candidates.filter(a=>Math.abs(gain(a)-bestGain)<1e-9),rng),player};

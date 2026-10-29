@@ -14,5 +14,9 @@ export const CURRENT_ART = Object.freeze({
   "mingjing": "当前卡面/空谷鸣晶蝠.png",
   "zhiyi": "当前卡面/纸翼.png",
   "fuyun": "当前卡面/负云长鬃驼.png",
-  "xuanjiao": "当前卡面/旋角羚.png"
+  "xuanjiao": "当前卡面/旋角羚.png",
+  "xianbei": "候选设计/弦背猞猁/弦背猞猁-skill-v2.png",
+  "dielin": "候选设计/叠鳞獾/叠鳞獾.png",
+  "jinzong": "候选设计/烬鬃/烬鬃.png",
+  "mingnang": "候选设计/鸣囊海豹/鸣囊海豹.png"
 });

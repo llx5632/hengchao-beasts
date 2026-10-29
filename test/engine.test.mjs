@@ -22,8 +22,8 @@ function point(a=STARTERS,b=STARTERS){
 }
 function proceed(m){for(const p of [0,1])m=turn(m,'decision',p,{value:'continue'});return m;}
 
-test('15 张卡各两技能，拼点读取静态值，初始收藏覆盖五属性',()=>{
-  assert.equal(CARDS.length,15);assert.equal(new Set(STARTERS.map(id=>CARD[id].element)).size,5);
+test('全卡各两技能，拼点读取静态值，初始收藏覆盖五属性',()=>{
+  assert.equal(CARDS.length,19);assert.equal(new Set(STARTERS.map(id=>CARD[id].element)).size,5);
   for(const c of CARDS){assert.equal(c.skills.length,2);assert.ok(c.retreat>=1);assert.ok([...c.name].length>=2&&[...c.name].length<=5);assert.equal(METRICS[3].read(c),Math.max(...c.skills.map(s=>s.damage)));}
 });
 test('不足五张不能拼点，同一种的不同副本可以选择，同一实例不能重复',()=>{

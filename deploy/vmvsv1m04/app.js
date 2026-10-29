@@ -1,16 +1,17 @@
 import { CARDS, CARD, BEATS, ELEMENTS, METRICS, POINT_NUMBERS, pointMetricIndex, skillText } from './data.js';
 import { dispatch, expectedPlayers, aiAction, randomInt } from './engine.js';
-import { SAVE_KEY, freshSession, createLocalMatch } from './session.js';
+import { SAVE_KEY, freshSession, createLocalMatch, upgradeSession } from './session.js';
 import { DIFFICULTIES, normalizeDifficulty } from './ai.js';
 import { scheduledStep } from './flow.js';
 import { SELECTION_SORTS, selectionCards, selectionSummary } from './selection.js';
-import { previewSkill, battleEndedBySurrender } from './combat.js';
+import { previewSkill, battleEndedBySurrender, combatStatuses } from './combat.js';
 import { selectionDraft, normalizePresets, createPreset, resolvePreset, canLeaveSelection } from './roster.js';
 
 const KEY=SAVE_KEY, app=document.querySelector('#app');
 const fresh=freshSession;
 let store;
 try { const saved=JSON.parse(localStorage.getItem(KEY)); store=saved?.version === 2 && saved.players?.length === 2 ? saved : fresh(); } catch { store=fresh(); }
+const sessionUpdated=upgradeSession(store);
 store.difficulty=normalizeDifficulty(store.difficulty);
 store.autoAdvance=store.autoAdvance!==false;
 store.battleCompact=store.battleCompact!==false;
@@ -53,27 +54,27 @@ function card(c,{instance=null,selected=false,details=false}={}){
 }
 function playedCard(c){return `<button class="played-card" data-action="zoom" data-card="${c.id}" aria-label="放大${c.name}完整卡面"><img src="${c.art}" alt="${c.name}完整卡面" width="1024" height="1536"><span class="zoom-hint">⊕ 点击放大</span></button>`;}
 function stateChange(last,field,player){if(!last?.before||!last.after)return '';const before=last.before[field][player],after=last.after[field][player],delta=after-before;if(!delta)return '';const good=field==='hp'?delta>0:delta<0;return `<span class="state-delta ${good?'benefit':'cost'}">${delta>0?'+':''}${delta}</span>`;}
-function battleState(c,state,player,showChanges=false){const last=showChanges?state.last:null;return `<div class="battle-state"><p><span>${name(player)} · 剩余 HP</span><b>${state.hp[player]} / ${c.hp} ${stateChange(last,'hp',player)}</b></p><div class="hp-track"><div class="hp-fill" style="width:${state.hp[player]/c.hp*100}%"></div></div><p><span>本局剩余撤退</span><b>${state.remaining[player]} ${stateChange(last,'remaining',player)}</b></p></div>`;}
+function battleState(c,state,player,showChanges=false){const last=showChanges?state.last:null;return `<div class="battle-state"><p><span>${name(player)} · 剩余 HP</span><b>${state.hp[player]} / ${c.hp} ${stateChange(last,'hp',player)}</b></p><div class="hp-track"><div class="hp-fill" style="width:${state.hp[player]/c.hp*100}%"></div></div><p><span>本局剩余撤退</span><b>${state.remaining[player]} ${stateChange(last,'remaining',player)}</b></p>${store.match?.status==='active'?battleStatusView(state,player):''}</div>`;}
 function hiddenCard(){return '<div class="hidden-card"><span class="crest">✦</span><p>衡潮谱印</p><small>对方卡牌尚未公开</small></div>';}
 function header(){const active=store.match?.status==='active'&&!canLeaveSelection(store.match);return `<header class="topbar"><button class="brand" data-action="home"><span class="crest">✦</span><span><strong>衡潮群岛</strong><small>THE TIDEBORNE ARCHIPELAGO</small></span></button><nav class="nav" aria-label="主导航"><button data-action="home" class="${route==='home'||route==='match'?'active':''}">${active?'当前对局':'对局大厅'}</button><button data-action="codex" class="${route==='codex'?'active':''}">异兽图鉴</button><button data-action="collection" class="${route==='collection'?'active':''}">我的收藏</button><button data-action="help">规则</button></nav><span class="edition">玩家对 AI · 本地首版</span></header>`;}
 function footer(){return '<footer class="footer"><span>衡潮群岛 / 原创异兽卡牌</span><span>本地浏览器保存 · 数值为候选设计 · 抽卡后续开放</span></footer>';}
 function difficultyPicker(){return `<fieldset class="difficulty-picker"><legend>对手难度</legend><div class="difficulty-options">${Object.entries(DIFFICULTIES).map(([value,option])=>`<label class="difficulty-option ${store.difficulty===value?'selected':''}"><input type="radio" name="difficulty" value="${value}" data-action="difficulty" ${store.difficulty===value?'checked':''}><span><strong>${option.label}</strong><small>${option.description}</small></span></label>`).join('')}</div><p>开局前选择，整场使用同一难度。</p></fieldset>`;}
 function home(){
   const a=store.players[0].cards.length,b=store.players[1].cards.length,pending=canLeaveSelection(store.match);
-  return `<section class="hero"><div class="hero-inner"><div><div class="eyebrow">FIELD NOTES · VOLUME 01</div><h1>与异兽相遇<br>在衡潮之间</h1><p>群岛随潮而变，谱印记录万物。选择你的异兽，以相性决斗争夺行动权，或在衡量试炼中一较高下。</p><div class="tagline"><span>五种自然属性</span><span>十五种异兽</span><span>两种对决</span></div></div><div class="fan" aria-label="三张已认可的概念卡"><img src="${CARD.tanling.art}" alt="炭铃概念卡"><img src="${CARD.xuanjiao.art}" alt="旋角羚概念卡"><img src="${CARD.fuchao.art}" alt="负潮巨鳖概念卡"><span class="fan-caption">奇幻自然志 · 原创异兽谱印</span></div></div></section>
+  return `<section class="hero"><div class="hero-inner"><div><div class="eyebrow">FIELD NOTES · VOLUME 01</div><h1>与异兽相遇<br>在衡潮之间</h1><p>群岛随潮而变，谱印记录万物。选择你的异兽，以相性决斗争夺行动权，或在衡量试炼中一较高下。</p><div class="tagline"><span>五种自然属性</span><span>原创异兽谱印</span><span>两种对决</span></div></div><div class="fan" aria-label="三张已认可的概念卡"><img src="${CARD.tanling.art}" alt="炭铃概念卡"><img src="${CARD.xuanjiao.art}" alt="旋角羚概念卡"><img src="${CARD.fuchao.art}" alt="负潮巨鳖概念卡"><span class="fan-caption">奇幻自然志 · 原创异兽谱印</span></div></div></section>
   <main class="wrap"><div class="section-heading"><div><div class="eyebrow">CHOOSE YOUR ENCOUNTER</div><h2>开启一场对决</h2></div><span class="subtle">玩家对 AI · 秘密提交，同时揭晓</span></div>
   ${pending?`<div class="banner selection-resume"><span>${store.match.mode==='point'?'拼点':'战斗'}选卡尚未封存，已保留 ${draft.length} 张选择，可继续选卡或切换模式。</span>${btn('继续选卡','resume-selection','small')}</div>`:''}${difficultyPicker()}<div class="modes"><article class="mode"><span class="number">01</span><div class="mode-kicker">相性决斗 / BATTLE</div><h3>一张谱印，一次交锋</h3><p>属性克制直接获胜。互不克制时，猜拳争夺行动权，选择技能进攻，或逐步撤退。</p><div class="mode-footer"><small class="subtle">各出战 1 张 · 胜者收卡</small>${btn('进入战斗　↗','start-battle','',!a||!b?'disabled':'')}</div></article>
   <article class="mode"><span class="number">02</span><div class="mode-kicker">衡量试炼 / POINT DUEL</div><h3>五次相逢，六种较量</h3><p>先公开双方五张阵容，再分别打乱。秘密选点，以总和决定比较项目。平手后亮牌，再次选点决胜。</p><div class="mode-footer"><small class="subtle">各出战 5 张 · 五小局</small>${btn('进入拼点　↗','start-point','',a<5||b<5?'disabled':'')}</div></article></div>
-  <div class="player-strip">${store.players.map((p,i)=>`<div><strong>${p.name}</strong><span>收藏 ${p.cards.length} 张　/　${p.cards.length>=5?'可参加拼点':'不足五张，暂不可拼点'}</span></div>`).join('')}</div>
-  <p class="footnote">本地首版中，你与 AI 初始均拥有全部 15 种异兽，每种一张。赢卡与失卡结果保存在当前浏览器。</p>
-  <div class="toolbar" style="margin-top:20px">${store.match?.status==='finished'?btn('查看上一场结果','last-match','ghost small'):''}${btn('恢复全部卡牌','reset','ghost small')}<span class="subtle">恢复后双方重新拥有全部 15 张，方便重复体验。</span></div></main>`;
+  <div class="player-strip">${store.players.map((p,i)=>`<div><strong>${p.name}</strong><span>${p.cards.length>=5?'可参加拼点':'不足五张，暂不可拼点'}</span></div>`).join('')}</div>
+  <p class="footnote">你与 AI 初始均拥有全部可用异兽，每种一张。赢卡与失卡结果保存在当前浏览器。</p>
+  <div class="toolbar" style="margin-top:20px">${store.match?.status==='finished'?btn('查看上一场结果','last-match','ghost small'):''}${btn('恢复全部卡牌','reset','ghost small')}<span class="subtle">恢复后双方重新拥有全套卡牌，方便重复体验。</span></div></main>`;
 }
 function catalog(){
   const isCollection=route==='collection';
   const instances=isCollection?store.players[owner].cards:null;
   const cards=isCollection?instances.map(i=>({card:CARD[i.cardId],instance:i})):CARDS.map(card=>({card}));
   const visible=cards.filter(({card:c})=>filter==='全部'||c.element===filter);
-  return `<main class="wrap"><div class="section-heading"><div><div class="eyebrow">${isCollection?'YOUR FIELD COLLECTION':'BESTIARY · FIFTEEN ENCOUNTERS'}</div><h2>${isCollection?'我的谱印收藏':'群岛异兽图鉴'}</h2></div><span class="subtle">${isCollection?instances.length:15} 张${isCollection?'持有卡牌':'候选卡牌'}</span></div>
+  return `<main class="wrap"><div class="section-heading"><div><div class="eyebrow">${isCollection?'YOUR FIELD COLLECTION':'BESTIARY · ISLAND ENCOUNTERS'}</div><h2>${isCollection?'我的谱印收藏':'群岛异兽图鉴'}</h2></div><span class="subtle">${isCollection?instances.length:CARDS.length} 张${isCollection?'持有卡牌':'候选卡牌'}</span></div>
     <div class="toolbar">${isCollection?[0,1].map(p=>btn(name(p),'owner',owner===p?'small':'ghost small',`data-player="${p}"`)).join(''):''}${['全部',...ELEMENTS].map(e=>`<button class="filter ${filter===e?'active':''}" data-action="filter" data-value="${e}">${e}</button>`).join('')}</div>
     ${!isCollection?'<div class="banner">高低阶与数值依据异兽的背景、体型和能力设计。点击插画或下方放大按钮可查看完整卡面。<a href="cards.html" target="_blank" rel="noopener">打开全部卡面总览 ↗</a></div>':''}
     <div class="collection-grid">${visible.map(({card:c})=>card(c,{details:true})).join('')}</div>${!visible.length?'<p class="empty">这个属性暂时没有持有卡牌。</p>':''}</main>`;
@@ -118,12 +119,24 @@ function presetTools(m,p,count){
   const presets=store.lineupPresets.filter(preset=>preset.mode===m.mode);
   return `<section class="preset-tools" aria-label="选卡保存与常用阵容"><div class="preset-save"><p role="status">${draftNotice?`${esc(draftNotice)} `:''}${storageFailed?'当前选择尚未写入存档，请重试保存。':'未封存的选择自动保存，刷新后可恢复。'}</p>${btn('保存为常用阵容','save-preset','ghost small',draft.length===count?'':'disabled')}</div><details class="preset-list" ${presetsOpen?'open':''}><summary>常用阵容 · ${presets.length} 套${m.mode==='battle'?'单卡方案':'五张阵容'}</summary>${presets.length?presets.map(preset=>{const result=resolvePreset(preset,m.inventories[p]);return `<div class="preset-row"><div><strong>${esc(preset.name)}</strong><p>${preset.cardIds.map(id=>CARD[id].name).join(' · ')}</p><small class="${result.missing.length?'preset-missing':''}">${result.missing.length?`缺少 ${result.missing.length} 张：${result.missing.map(id=>CARD[id].name).join('、')}`:'当前持有卡牌齐全'}</small></div><div class="toolbar">${btn(result.missing.length?'载入已有卡':'载入阵容','load-preset','ghost small',`data-preset="${esc(preset.id)}" aria-label="载入${esc(preset.name)}"`)}${btn('删除','delete-preset','ghost small',`data-preset="${esc(preset.id)}" aria-label="删除${esc(preset.name)}"`)}</div></div>`;}).join(''):'<p class="subtle">选齐出战卡后可保存，供之后的同模式对局使用。</p>'}</details></section>`;
 }
+function battleStatusView(b,p){
+  return `<div class="combat-statuses" aria-label="${name(p)}的技能状态">${combatStatuses(b,p).map(s=>`<button class="combat-status ${s.active?'status-active':''}" data-action="battle-status" data-player="${p}" data-kind="${s.id}" aria-label="查看${name(p)}的${s.label}">${s.label}<span aria-hidden="true"> ⓘ</span></button>`).join('')}</div>`;
+}
 function skillButton(battle,p,skill,index){
-  const actual=previewSkill(battle,p,index),effectName=skill.effect==='heal'?'回血':'阻退';
-  const effectValue=skill.effect==='heal'?actual.healing:actual.delay;
-  const note=actual.effectSkipped?`可击败对方，${effectName}效果不再触发。`:actual.lethal?'可击败对方，立即结算。':skill.effect==='heal'&&actual.healing===0?'当前已满血，本次回血为 0。':skill.effect==='heal'&&actual.healing<skill.amount?'恢复量受最大 HP 限制。':skill.effect==='delay'&&actual.delay===0?'对方剩余撤退已达上限，本次阻退为 0。':'';
-  const impact=`实际伤害 ${actual.damage}${skill.effect?` · ${effectName==='回血'?'实际回血':'对方剩余撤退'} ${effectName==='阻退'?'+':''}${effectValue}`:''}`;
-  return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${note?`，${note}`:''}"><em>${actual.damage}<small>实际伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">对方剩余 HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='heal'?` · 自己 HP：${battle.hp[p]} → ${actual.ownHp}`:skill.effect==='delay'?` · 对方剩余撤退：${battle.remaining[1-p]} → ${actual.targetRetreat}`:''}</span>${note?`<span class="skill-notice ${actual.lethal?'lethal':''}">${note}</span>`:''}</button>`;
+  const actual=previewSkill(battle,p,index),b=actual.breakdown;
+  const notes=[];
+  if(actual.effectSkipped)notes.push('伤害致胜后立即结算，附加效果不再触发。');
+  else if(actual.lethal)notes.push('可击败对方，立即结算。');
+  if(skill.effect==='heal'&&!actual.lethal)notes.push(actual.healing===0?'当前已满血，本次回血为 0。':`实际回血 ${actual.healing}`);
+  if(skill.effect==='delay'&&!actual.lethal)notes.push(actual.delay===0?'对方剩余撤退已达上限，本次阻退为 0。':`对方剩余撤退＋${actual.delay}`);
+  if(skill.effect==='charge'&&!actual.lethal)notes.push(battle.charge?.[p]?'已有蓄势，不叠加。':'获得蓄势：下次裂风突袭＋30。');
+  if(skill.effect==='shield'&&!actual.lethal)notes.push(`获得护盾${skill.amount}，下次受击消耗、不叠加。`);
+  if(skill.effect==='burst')notes.push(b.bonus?'本次消耗蓄势。':'尚未蓄势，本次基础伤害35。');
+  if(skill.effect==='echo')notes.push(battle.echo?.[p]?`回响记录${battle.echo[p]}，取一半向下取整、最多＋30；本次使用后清除。`:'没有受伤记录，本次不追加伤害。');
+  if(skill.effect==='desperate')notes.push(battle.hp[p]<=60?'绝境已生效。':'当前HP高于60，绝境未生效。');
+  const impact=`实际伤害 ${actual.damage}${skill.effect==='heal'?` · 实际回血 ${actual.healing}`:skill.effect==='delay'?` · 对方剩余撤退 +${actual.delay}`:''}`;
+  const calculation=`基础${b.base}${b.bonus?`＋强化${b.bonus}`:''}${b.blocked?`－护盾${b.blocked}`:''}＝${Math.max(0,b.raw-b.blocked)}${actual.damage<Math.max(0,b.raw-b.blocked)?`；实际扣血受剩余HP限制为${actual.damage}`:''}`;
+  return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方剩余HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='heal'?` · 自己HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
 }
 function privateTurn(m,p){
   if(m.phase==='select'){
@@ -141,7 +154,7 @@ function privateTurn(m,p){
   if(m.phase==='rps')return `${battleBoard(m)}<section class="panel center"><div class="eyebrow">${name(p)} · 秘密出拳</div><h3>石头、剪刀、布</h3><p>双方选定后同时揭晓，只有胜者获得一次行动权。</p><div class="options">${[['rock','◉','石头'],['scissors','✂','剪刀'],['paper','▤','布']].map(([v,g,n])=>`<button class="option" data-action="rps" data-value="${v}" aria-label="出${n}"><b>${g}</b>${n}</button>`).join('')}</div></section>`;
   if(m.phase==='battle-action'){
     const c=CARD[m.battle.cards[p]];
-    return `${battleBoard(m)}<section class="panel"><div class="eyebrow">${name(p)} · 获得一次行动权</div><h3>进攻，或为撤退争取一步</h3>${rpsResult(m)}<div class="skills">${c.skills.map((s,i)=>skillButton(m.battle,p,s,i)).join('')}</div><div class="toolbar">${btn(`选择撤退 · ${m.battle.remaining[p]} → ${m.battle.remaining[p]-1}`,'retreat','ghost')}${btn('主动投降并失去当前卡','battle-surrender','danger',`data-player="${p}"`)}</div><p class="footnote">技能按钮按当前局势显示本次实际效果；伤害致胜后，回血与阻退不再触发。卡牌基础值保持不变。</p></section>`;
+    return `${battleBoard(m)}<section class="panel"><div class="eyebrow">${name(p)} · 获得一次行动权</div><h3>进攻，或为撤退争取一步</h3>${rpsResult(m)}<div class="skills">${c.skills.map((s,i)=>skillButton(m.battle,p,s,i)).join('')}</div><div class="toolbar">${btn(`选择撤退 · ${m.battle.remaining[p]} → ${m.battle.remaining[p]-1}`,'retreat','ghost')}${btn('主动投降并失去当前卡','battle-surrender','danger',`data-player="${p}"`)}</div><p class="footnote">技能按钮按当前局势显示本次实际效果；伤害致胜后，后续附加效果不再触发。卡牌基础值保持不变。</p></section>`;
   }
   return '';
 }
@@ -229,6 +242,7 @@ document.addEventListener('click',event=>{
   if(a==='close-card'){document.querySelector('#card-dialog').close();return;}
   if(a==='retry-save'){const saved=save();render();if(saved)toast('已成功写入浏览器存档。');return;}
   if(a==='zoom')return openCard(target.dataset.card);
+  if(a==='battle-status'){const status=combatStatuses(m.battle,Number(target.dataset.player)).find(s=>s.id===target.dataset.kind);if(status)modal(status.label,`<p>${esc(status.detail)}</p>`);return;}
   if(a==='battle-layout'){store.battleCompact=!store.battleCompact;save();render();document.querySelector('.battle-match')?.scrollIntoView({block:'start'});return;}
   if(a==='save-preset'){
     if(m?.phase!=='select'||m.selections[0]!==null)return;
@@ -253,7 +267,7 @@ document.addEventListener('click',event=>{
   if(a==='selection-direction'){selectionAscending=!selectionAscending;render();return;}
   if(a==='selection-clear'){selectionElement='全部';selectedOnly=false;render();return;}
   if(a==='remove-draft'){draft=draft.filter(id=>id!==target.dataset.instance);draftNotice='';saveDraft();render();return;}
-  if(a==='help'){modal('谱印对决 · 玩法说明','<p><b>玩家对 AI：</b>你与 AI 初始各有全部 15 种异兽，每种一张。你只操作自己一侧，AI 自动选卡、选点和出拳；双方完成选择后同时揭晓。拼点在普通平手前隐藏 AI 的当前卡。</p><p><b>战斗：</b>秘密选一张并同时亮牌。火→草→岩→风→水→火，克制直接判胜；中立时秘密猜拳，胜者进攻或撤退。撤退剩余点数减到 0 判平局。</p><p><b>拼点：</b>双方先秘密封存五张，同时公开阵容；确认后分别打乱。小局开始只直接展示自己的卡，对方的当前卡仍保密。秘密选 0～6 或随机，双方揭晓后，点数总和对应下方编号，超过 6 循环；双方均出 0 时直接判本次平手，亮牌后用原卡重新选点，不推进小局、不交换卡牌。编号依次为：1名字、2最大HP、3基础撤退、4最高基础伤害、5身高、6体重。平手亮牌后用原卡重选，同卡跳过。</p><p><b>收藏：</b>胜者拿走败者当前卡。拼点投降按剩余5/4/3/2/1张随机罚3/2/2/1/1张；双方在小局之间秘密决定，一起公布。</p><p><b>技能：</b>回血不超过最大HP；阻退增加对方本局剩余撤退，上限暂为基础值＋2。伤害致胜后立即结算。</p><p>你可以暂离并由 AI 接管自己一侧，随后恢复操作。对手始终由 AI 控制；真实联网掉线与重连留待联网阶段。</p>');return;}
+  if(a==='help'){modal('谱印对决 · 玩法说明','<p><b>玩家对 AI：</b>你与 AI 初始各有全套异兽，每种一张。你只操作自己一侧，AI 自动选卡、选点和出拳；双方完成选择后同时揭晓。拼点在普通平手前隐藏 AI 的当前卡。</p><p><b>战斗：</b>秘密选一张并同时亮牌。火→草→岩→风→水→火，克制直接判胜；中立时秘密猜拳，胜者进攻或撤退。撤退剩余点数减到 0 判平局。</p><p><b>拼点：</b>双方先秘密封存五张，同时公开阵容；确认后分别打乱。小局开始只直接展示自己的卡，对方的当前卡仍保密。秘密选 0～6 或随机，双方揭晓后，点数总和对应下方编号，超过 6 循环；双方均出 0 时直接判本次平手，亮牌后用原卡重新选点，不推进小局、不交换卡牌。编号依次为：1名字、2最大HP、3基础撤退、4最高基础伤害、5身高、6体重。平手亮牌后用原卡重选，同卡跳过。</p><p><b>收藏：</b>胜者拿走败者当前卡。拼点投降按剩余5/4/3/2/1张随机罚3/2/2/1/1张；双方在小局之间秘密决定，一起公布。</p><p><b>技能：</b>回血不超过最大HP；阻退增加对方本局剩余撤退，上限暂为基础值＋2。伤害致胜后立即结算。</p><p>你可以暂离并由 AI 接管自己一侧，随后恢复操作。对手始终由 AI 控制；真实联网掉线与重连留待联网阶段。</p>');return;}
   if(['home','codex','collection'].includes(a)){
     if(canLeaveSelection(m)){store.selectionLobby=true;saveDraft();route=a;filter='全部';render();window.scrollTo(0,0);return;}
     if(m?.status==='active'){if(a==='home'){route='match';render();}else toast('本场对局进行中，结束后可查看图鉴与收藏。');return;}
@@ -266,7 +280,7 @@ document.addEventListener('click',event=>{
   if(a==='filter'){filter=target.dataset.value;render();return;}
   if(a==='last-match'){route='match';render();return;}
   if(a==='reset'){
-    modal('恢复全部卡牌？','<p>你与 AI 将重新拥有全部 15 种异兽，每种一张。当前收藏与上一场记录将被替换，仅影响本浏览器。</p>','confirm-reset','恢复全部卡牌');return;
+    modal('恢复全部卡牌？','<p>你与 AI 将重新拥有全套异兽，每种一张。当前收藏与上一场记录将被替换，仅影响本浏览器。</p>','confirm-reset','恢复全部卡牌');return;
   }
   if(a==='confirm-reset'){
     const presets=store.lineupPresets,compact=store.battleCompact;store=fresh();store.lineupPresets=presets;store.battleCompact=compact;store.selectionDrafts={};store.selectionLobby=false;draft=[];draftNotice='';route='home';save();document.querySelector('#dialog').close();render();return;
@@ -306,4 +320,5 @@ for(const d of document.querySelectorAll('dialog')){
 }
 document.addEventListener('visibilitychange',scheduleAI);
 document.addEventListener('toggle',event=>{if(!event.target.isConnected)return;if(event.target.matches?.('.preset-list')){presetsOpen=event.target.open;return;}if(event.target.matches?.('.draft-overview')){draftOverviewOpen=event.target.open;return;}if(event.target.matches?.('.log, .lineup-reference')){readingOpen[event.target.matches('.log')?'log':'lineup']=event.target.open;scheduleAI();}},true);
+if(sessionUpdated)save();
 render();

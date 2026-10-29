@@ -7,6 +7,7 @@ export const SAVE_KEY = 'hengchao-local-pve-v2';
 export function freshSession() {
   return {
     version: 2,
+    specialCardsGranted: true,
     difficulty: 'easy',
     autoAdvance: true,
     battleCompact: true,
@@ -18,6 +19,20 @@ export function freshSession() {
     })),
     match: null,
   };
+}
+export function upgradeSession(session) {
+  if(session.specialCardsGranted)return false;
+  const ids=['xianbei','dielin','jinzong','mingnang'];
+  const existing=new Set(session.players.flatMap(p=>p.cards.map(c=>c.id)));
+  session.players.forEach((p,player)=>{
+    for(const cardId of ids){
+      const id=`release-special-${player}-${cardId}`;
+      if(existing.has(id))continue;
+      const card={id,cardId};p.cards.push(card);existing.add(id);
+      if(session.match?.status==='active')session.match.inventories[player].push({...card});
+    }
+  });
+  session.specialCardsGranted=true;return true;
 }
 export function createLocalMatch(mode, players, difficulty='easy') {
   const match = createMatch(mode, players.map(player => player.cards));

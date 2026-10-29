@@ -1,6 +1,6 @@
 import { CARD, BEATS, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
 import { hardPointAction, hardBattleAction } from './ai.js';
-import { resolveCombatAction } from './combat.js';
+import { resolveCombatAction, clearCombatStatuses } from './combat.js';
 
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 export const randomInt = (max, rng = Math.random) => Math.min(max - 1, Math.floor(rng() * max));
@@ -30,7 +30,7 @@ export function expectedPlayers(m) {
 }
 const log = (m,text) => m.history.push(text);
 const playerName = (m,p) => m.playerNames?.[p] ?? `探索者 ${p === 0 ? 'A' : 'B'}`;
-function finish(m,winner,reason) { m.status='finished'; m.phase='finished'; m.winner=winner; m.reason=reason; log(m,reason); }
+function finish(m,winner,reason) { m.status='finished'; m.phase='finished'; m.winner=winner; m.reason=reason; if(m.battle)clearCombatStatuses(m.battle); log(m,reason); }
 function transfer(m,from,id,reason) {
   const index = m.inventories[from].findIndex(c => c.id === id);
   check(index >= 0,'这张卡牌已经结算，不能重复转移');
@@ -41,7 +41,7 @@ function transfer(m,from,id,reason) {
 function startBattle(m) {
   m.hands=m.selections.map(ids => ids.map(id => m.inventories.flat().find(c => c.id === id)));
   const cards=m.hands.map(h => CARD[h[0].cardId]);
-  m.battle={cards:cards.map(c => c.id),hp:cards.map(c => c.hp),remaining:cards.map(c => c.retreat),actor:null,last:null};
+  m.battle={cards:cards.map(c => c.id),hp:cards.map(c => c.hp),remaining:cards.map(c => c.retreat),actor:null,last:null,charge:[false,false],shield:[0,0],echo:[0,0]};
   for (const p of [0,1]) if (BEATS[cards[p].element] === cards[1-p].element) {
     transfer(m,1-p,m.hands[1-p][0].id,'属性克制');
     finish(m,p,`${cards[p].element}克制${cards[1-p].element}，直接获胜`); return;
@@ -169,11 +169,12 @@ export function aiAction(m,p,rng=Math.random) {
   if (m.phase === 'battle-action') {
     if(m.difficulty==='hard')return hardBattleAction(m,p,rng);
     const own=CARD[m.battle.cards[p]], other=CARD[m.battle.cards[1-p]], b=m.battle;
-    const lethal=own.skills.findIndex(s => s.damage >= b.hp[1-p]);
+    const projected=own.skills.map((s,skill)=>resolveCombatAction(b,p,{type:'attack',skill}));
+    const lethal=projected.findIndex(r => r.finished&&r.winner===p);
     if (lethal >= 0) return {type:'attack',player:p,skill:lethal};
-    if (b.hp[p] <= Math.max(...other.skills.map(s => s.damage)) && b.remaining[p] <= 2) return {type:'retreat',player:p};
+    if (b.hp[p] <= Math.max(...other.skills.map((s,skill)=>b.hp[p]-resolveCombatAction(b,1-p,{type:'attack',skill}).state.hp[p])) && b.remaining[p] <= 2) return {type:'retreat',player:p};
     let skill=0,best=-Infinity;
-    own.skills.forEach((s,i) => { const score=s.damage+(s.effect === 'heal' ? Math.min(s.amount,own.hp-b.hp[p]) : s.effect === 'delay' && b.remaining[1-p] <= 2 ? 16 : 0); if (score > best) {best=score; skill=i;} });
+    own.skills.forEach((s,i) => { const next=projected[i].state;const score=b.hp[1-p]-next.hp[1-p]+next.hp[p]-b.hp[p]+(s.effect==='delay'&&b.remaining[1-p]<=2?16:0)+(next.charge[p]&&!b.charge?.[p]?20:0)+Math.max(0,next.shield[p]-(b.shield?.[p]??0)); if (score > best) {best=score; skill=i;} });
     return {type:'attack',player:p,skill};
   }
   return null;

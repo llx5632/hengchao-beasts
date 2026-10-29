@@ -6,11 +6,12 @@
 import { readFile, writeFile, mkdir, rm, copyFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
+import './sync-catalog.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(here, '../dist');
 const out = resolve(here, '../deploy');
-const artDir = resolve(here, '../../卡牌/当前卡面');
+const artDir = resolve(here, '../../卡牌');
 const webpDir = resolve(here, '../deploy-art');
 const hasWebp = await readdir(webpDir).then(() => true).catch(() => false);
 const ext = hasWebp ? '.webp' : '.png';
@@ -29,7 +30,7 @@ await mkdir(join(body, 'art'), { recursive: true });
 
 for (const name of await readdir(dist)) await copyFile(join(dist, name), join(body, name));
 for (const { id, path } of entries) {
-  const from = hasWebp ? join(webpDir, `${id}.webp`) : join(artDir, path.split('/').pop());
+  const from = hasWebp ? join(webpDir, `${id}.webp`) : join(artDir, path);
   await copyFile(from, join(body, 'art', `${id}${ext}`));
 }
 

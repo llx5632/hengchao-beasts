@@ -4,18 +4,18 @@ import {CARDS} from '../dist/data.js';
 import {freshSession,createLocalMatch,SAVE_KEY} from '../dist/session.js';
 import {aiAction,dispatch,expectedPlayers} from '../dist/engine.js';
 
-test('本地首版双方直接持有全部十五种卡，各一个独立实例',()=>{
+test('本地首版双方直接持有全部全部卡种，各一个独立实例',()=>{
   const session=freshSession();
   assert.equal(session.version,2);
   assert.equal(session.autoAdvance,true);
   assert.notEqual(SAVE_KEY,'hengchao-local-v1');
   for(const player of session.players){
-    assert.equal(player.cards.length,15);
+    assert.equal(player.cards.length,CARDS.length);
     assert.deepEqual(player.cards.map(c=>c.cardId),CARDS.map(c=>c.id));
   }
-  assert.equal(new Set(session.players.flatMap(p=>p.cards.map(c=>c.id))).size,30);
+  assert.equal(new Set(session.players.flatMap(p=>p.cards.map(c=>c.id))).size,CARDS.length*2);
   session.players[0].cards.pop();
-  assert.equal(freshSession().players[0].cards.length,15);
+  assert.equal(freshSession().players[0].cards.length,CARDS.length);
 });
 
 for(const mode of ['battle','point'])test(`${mode} 默认玩家对 AI，AI 独立提交后仍等待玩家`,()=>{
@@ -49,7 +49,7 @@ test('玩家对 AI 的五小局流程可完成，赢卡结果仍保留且不修�
   assert.equal(m.status,'finished');
   assert.equal(m.rounds.length,5);
   assert.equal(m.transfers.length,5);
-  assert.equal(m.inventories.flat().length,30);
-  assert.deepEqual(session.players.map(p=>p.cards.length),[15,15]);
+  assert.equal(m.inventories.flat().length,CARDS.length*2);
+  assert.deepEqual(session.players.map(p=>p.cards.length),[CARDS.length,CARDS.length]);
   assert.ok(m.history.every(text=>!text.includes('探索者 A')&&!text.includes('探索者 B')));
 });
