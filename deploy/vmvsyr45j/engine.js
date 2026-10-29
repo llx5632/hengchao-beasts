@@ -1,6 +1,6 @@
 import { CARD, BEATS, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
 import { hardPointAction, hardBattleAction } from './ai.js';
-import { resolveCombatAction, clearCombatStatuses } from './combat.js';
+import { resolveCombatAction, clearCombatStatuses, combatStatusValue } from './combat.js';
 
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 export const randomInt = (max, rng = Math.random) => Math.min(max - 1, Math.floor(rng() * max));
@@ -42,6 +42,7 @@ function startBattle(m) {
   m.hands=m.selections.map(ids => ids.map(id => m.inventories.flat().find(c => c.id === id)));
   const cards=m.hands.map(h => CARD[h[0].cardId]);
   m.battle={cards:cards.map(c => c.id),hp:cards.map(c => c.hp),remaining:cards.map(c => c.retreat),actor:null,last:null,charge:[false,false],shield:[0,0],echo:[0,0]};
+  clearCombatStatuses(m.battle);
   for (const p of [0,1]) if (BEATS[cards[p].element] === cards[1-p].element) {
     transfer(m,1-p,m.hands[1-p][0].id,'属性克制');
     finish(m,p,`${cards[p].element}克制${cards[1-p].element}，直接获胜`); return;
@@ -93,8 +94,8 @@ function battleAction(m,action) {
   m.battle=result.state;
   m.battle.last={player:p,text:result.text,before:{hp:[...b.hp],remaining:[...b.remaining]},after:{hp:[...result.state.hp],remaining:[...result.state.remaining]}};log(m,result.text);
   if(!result.finished)m.phase='battle-turn';
-  else if(result.winner===null)finish(m,null,'撤退成功，平局，双方保留卡牌');
-  else {transfer(m,other,m.hands[other][0].id,'战斗获胜');finish(m,p,'对方剩余 HP 为 0，战斗获胜');}
+  else if(result.winner===null)finish(m,null,action.type==='retreat'&&result.state.remaining[p]===0?'撤退成功，平局，双方保留卡牌':'双方持续伤害同时归零，平局，双方保留卡牌');
+  else {const winner=result.winner,loser=1-winner;transfer(m,loser,m.hands[loser][0].id,'战斗获胜');finish(m,winner,result.effects.burnDamage.some(Boolean)?'持续伤害结算后HP归零，战斗结束':'对方剩余 HP 为 0，战斗获胜');}
 }
 
 export function dispatch(match,action,rng=Math.random) {
@@ -172,9 +173,15 @@ export function aiAction(m,p,rng=Math.random) {
     const projected=own.skills.map((s,skill)=>resolveCombatAction(b,p,{type:'attack',skill}));
     const lethal=projected.findIndex(r => r.finished&&r.winner===p);
     if (lethal >= 0) return {type:'attack',player:p,skill:lethal};
-    if (b.hp[p] <= Math.max(...other.skills.map((s,skill)=>b.hp[p]-resolveCombatAction(b,1-p,{type:'attack',skill}).state.hp[p])) && b.remaining[p] <= 2) return {type:'retreat',player:p};
+    const retreat=resolveCombatAction(b,p,{type:'retreat'});
+    if ((!retreat.finished||retreat.winner!==1-p)&&b.hp[p] <= Math.max(...other.skills.map((s,skill)=>b.hp[p]-resolveCombatAction(b,1-p,{type:'attack',skill}).state.hp[p])) && b.remaining[p] <= 2) return {type:'retreat',player:p};
+    const survives=projected.some(r=>!r.finished||r.winner===p);
+    if(!survives&&(!retreat.finished||retreat.winner===null))return {type:'retreat',player:p};
     let skill=0,best=-Infinity;
-    own.skills.forEach((s,i) => { const next=projected[i].state;const score=b.hp[1-p]-next.hp[1-p]+next.hp[p]-b.hp[p]+(s.effect==='delay'&&b.remaining[1-p]<=2?16:0)+(next.charge[p]&&!b.charge?.[p]?20:0)+Math.max(0,next.shield[p]-(b.shield?.[p]??0)); if (score > best) {best=score; skill=i;} });
+    own.skills.forEach((s,i)=>{const r=projected[i],next=r.state;
+      const score=r.finished&&r.winner===1-p?-10000:b.hp[1-p]-next.hp[1-p]+next.hp[p]-b.hp[p]+combatStatusValue(next,p)-combatStatusValue(b,p)+(s.effect==='delay'&&b.remaining[1-p]<=2?16:0)-(next.remaining[p]-b.remaining[p])*2;
+      if(score>best){best=score;skill=i;}
+    });
     return {type:'attack',player:p,skill};
   }
   return null;
