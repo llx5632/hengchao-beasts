@@ -6,22 +6,29 @@ import { scheduledStep } from './flow.js';
 import { SELECTION_SORTS, selectionCards, selectionSummary } from './selection.js';
 import { previewSkill, battleEndedBySurrender, combatStatuses, resolveCombatAction } from './combat.js';
 import { selectionDraft, normalizePresets, createPreset, resolvePreset, canLeaveSelection } from './roster.js';
+import { newTutorial, normalizeTutorial, beginTutorialLesson, tutorialAction } from './tutorial.js';
+import { renderTutorial } from './tutorial-ui.js';
+import { EASTER_EGG_MESSAGES, FIREWORKS_DURATION, normalizeEasterEgg, unlockEasterEgg, nextEasterEgg, fireworksMarkup } from './easter-egg.js';
 
 const KEY=SAVE_KEY, app=document.querySelector('#app');
 const fresh=freshSession;
-let store;
-try { const saved=JSON.parse(localStorage.getItem(KEY)); store=saved?.version === 2 && saved.players?.length === 2 ? saved : fresh(); } catch { store=fresh(); }
+let store,hadSavedSession=false;
+try { const saved=JSON.parse(localStorage.getItem(KEY)); hadSavedSession=saved?.version === 2 && saved.players?.length === 2;store=hadSavedSession?saved:fresh(); } catch { store=fresh(); }
 const sessionUpdated=upgradeSession(store);
 store.difficulty=normalizeDifficulty(store.difficulty);
 store.autoAdvance=store.autoAdvance!==false;
 store.battleCompact=store.battleCompact!==false;
 store.lineupPresets=normalizePresets(store.lineupPresets);
 store.selectionDrafts=store.selectionDrafts&&typeof store.selectionDrafts==='object'&&!Array.isArray(store.selectionDrafts)?store.selectionDrafts:{};
+store.tutorial=normalizeTutorial(store.tutorial,!hadSavedSession);
+store.easterEgg=normalizeEasterEgg(store.easterEgg);
 if(store.match)store.match.difficulty=normalizeDifficulty(store.match.difficulty);
 let route=store.match&&!(store.selectionLobby&&canLeaveSelection(store.match)) ? 'match' : 'home', draft=selectionDraft(store.match), filter='全部', owner=0, timer=null, toastTimer=null, previewCardId=null, paused=false;
 let selectionElement='全部',selectionSort='default',selectionAscending=false,selectedOnly=false,draftOverviewOpen=false;
 let presetsOpen=false,draftNotice=draft.length?'已恢复上次未封存的选卡。':'';
 let storageFailed=false,readingOpen={log:false,lineup:false};
+let eggTimer=null,eggAdvanceAt=0;
+if(store.tutorial.status==='active')route='tutorial';
 const name=p => store.players[p].name;
 const esc=value => String(value).replace(/[&<>"']/g,c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const btn=(text,action,cls='',attrs='') => `<button class="btn ${cls}" data-action="${action}" ${attrs}>${text}</button>`;
@@ -30,9 +37,59 @@ function saveDraft(){store.match.selectionDraft=[...draft];store.selectionDrafts
 function toast(text){const el=document.querySelector('#toast');el.textContent=text;el.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.display='none',4200);}
 function modal(title,body,action=null,label='确定'){
   const d=document.querySelector('#dialog');
-  d.innerHTML=`<h2>${title}</h2>${body}<div class="dialog-actions">${btn(action?'取消':'知道了','close-dialog','ghost')}${action?btn(label,action):''}</div>`;
+  d.innerHTML=`<h2 id="dialog-title">${title}</h2>${body}<div class="dialog-actions">${btn(action?'取消':'知道了','close-dialog','ghost')}${action?btn(label,action):''}</div>`;
   d.showModal();
   scheduleAI();
+}
+function welcomeTutorial(){
+  const d=document.querySelector('#dialog');
+  d.innerHTML=`<div class="tutorial-welcome"><span class="crest">✦</span><div class="eyebrow">欢迎来到衡潮群岛</div><h2 id="dialog-title">你的第一张谱印，<br>从这里开始</h2><p>跟随三段练习，学会用属性克制赢得交锋、在不利局势下撤退，以及在拼点中发挥自己的强项。</p><ol><li>炭铃对根冠鹿：低阶也能凭属性获胜</li><li>苔团对负潮巨鳖：进攻、受击，再撤退</li><li>五张谱印的拼点：以己之长，攻彼之短</li></ol><p class="tutorial-safe-note">这是独立练习，不会改变你的正式收藏与已有对局。首次访问会自动欢迎，之后也可在大厅重温。</p><div class="dialog-actions">${btn('暂不学习','tutorial-skip','ghost')}${btn('开始新手教程','tutorial-begin','','autofocus')}</div></div>`;
+  d.showModal();scheduleAI();
+}
+function openTutorial(){
+  if(store.match?.status==='active'&&!canLeaveSelection(store.match))return toast('请先完成当前正式对局，再重温教程。');
+  if(store.tutorial.status==='paused'){store.tutorial.status='active';route='tutorial';save();render();window.scrollTo(0,0);return;}
+  store.tutorial=newTutorial();route='home';save();render();welcomeTutorial();
+}
+function sendTutorial(action){
+  try{
+    store.tutorial=tutorialAction(store.tutorial,action);
+    route=store.tutorial.status==='completed'?'home':'tutorial';save();render();
+    if(action.type!=='choose'){window.scrollTo(0,0);document.querySelector('#tutorial-heading')?.focus({preventScroll:true});}
+    if(store.tutorial.status==='completed')toast('新手教程已完成，正式收藏保持不变。可以开始自己的对局了。');
+  }catch(error){toast(error.message);}
+}
+function scheduleEggFireworks(){
+  clearTimeout(eggTimer);
+  if(store.easterEgg?.status==='fireworks'&&!document.hidden&&document.querySelector('#easter-egg-dialog').open)eggTimer=setTimeout(finishEasterEgg,FIREWORKS_DURATION);
+}
+function showEasterEgg(){
+  const egg=store.easterEgg,d=document.querySelector('#easter-egg-dialog');
+  if(!egg||!['active','fireworks'].includes(egg.status))return;
+  clearTimeout(eggTimer);
+  d.className=egg.status==='fireworks'?'egg-fireworks-dialog':'';
+  d.innerHTML=egg.status==='fireworks'?`<div class="egg-sky" aria-hidden="true">${fireworksMarkup()}</div><div class="egg-celebration"><h2 id="egg-message">谢谢你玩这个游戏</h2><p>愿你在衡潮群岛，继续遇见喜欢的异兽。</p>${btn('回到对局','egg-finish','ghost','autofocus')}</div>`:`<button class="egg-message-card ${egg.step===4?'is-letter':''}" data-action="egg-next" data-step="${egg.step}" autofocus><span class="egg-seal" aria-hidden="true">✦</span><span id="egg-message" class="egg-message-copy">${EASTER_EGG_MESSAGES[egg.step]}</span><span class="egg-click-hint">${egg.step===4?'点击弹窗，收下这份感谢':'点击弹窗，继续看看'} · 也可按 Enter 或空格</span></button><div class="egg-dialog-footer"><button class="egg-later" data-action="egg-pause">稍后继续</button></div>${storageFailed?'<p class="egg-save-note">当前进度未能写入浏览器，刷新可能丢失；稍后可重试保存。</p>':''}`;
+  if(!d.open)d.showModal();
+  document.querySelector('#easter-egg-dialog [autofocus]')?.focus({preventScroll:true});
+  eggAdvanceAt=Date.now()+250;
+  scheduleAI();scheduleEggFireworks();
+}
+function maybeOpenEasterEgg(){
+  if(route==='tutorial'||store.tutorial.status==='welcome'||document.hidden)return;
+  const egg=unlockEasterEgg(store);
+  if(egg!==store.easterEgg){store.easterEgg=egg;save();}
+  if(!egg||!['active','fireworks'].includes(egg.status))return;
+  const d=document.querySelector('#easter-egg-dialog'),other=document.querySelector('dialog[open]');
+  if(other&&other!==d)return;
+  showEasterEgg();
+}
+function pauseEasterEgg(){
+  clearTimeout(eggTimer);if(!store.easterEgg)return;
+  store.easterEgg.status='paused';save();document.querySelector('#easter-egg-dialog').close();render();
+}
+function finishEasterEgg(){
+  clearTimeout(eggTimer);if(store.easterEgg?.status!=='fireworks')return;
+  store.easterEgg={...store.easterEgg,status:'completed',step:5};save();document.querySelector('#easter-egg-dialog').close();render();
 }
 function cardInfo(c){return `<div class="card-reading"><div class="eyebrow">${c.tier} · ${c.element}属性 · 克制${BEATS[c.element]}</div><h3>${c.name}</h3><p>基础 HP <b>${c.hp}</b> · 基础撤退 <b>${c.retreat}</b><br>身高 ${c.height}m · 体重 ${c.weight}kg</p><div class="reading-skills">${c.skills.map(s=>`<div><strong>${s.name}</strong><p>${skillText(s)}</p></div>`).join('')}</div><p class="story-text">${c.story}</p></div>`;}
 function openCard(id){
@@ -67,7 +124,7 @@ function home(){
   <article class="mode"><span class="number">02</span><div class="mode-kicker">衡量试炼 / POINT DUEL</div><h3>五次相逢，六种较量</h3><p>先公开双方五张阵容，再分别打乱。秘密选点，以总和决定比较项目。平手后亮牌，再次选点决胜。</p><div class="mode-footer"><small class="subtle">各出战 5 张 · 五小局</small>${btn('进入拼点　↗','start-point','',a<5||b<5?'disabled':'')}</div></article></div>
   <div class="player-strip">${store.players.map((p,i)=>`<div><strong>${p.name}</strong><span>${p.cards.length>=5?'可参加拼点':'不足五张，暂不可拼点'}</span></div>`).join('')}</div>
   <p class="footnote">你与 AI 初始均拥有全部可用异兽，每种一张。赢卡与失卡结果保存在当前浏览器。</p>
-  <div class="toolbar" style="margin-top:20px">${store.match?.status==='finished'?btn('查看上一场结果','last-match','ghost small'):''}${btn('恢复全部卡牌','reset','ghost small')}<span class="subtle">恢复后双方重新拥有全套卡牌，方便重复体验。</span></div></main>`;
+  <div class="toolbar" style="margin-top:20px">${store.easterEgg?.status==='paused'?btn('继续彩蛋','egg-resume','ghost small'):''}${btn(store.tutorial.status==='paused'?'继续新手教程':store.tutorial.status==='completed'?'重温新手教程':'新手教程','tutorial-open','ghost small')}${store.match?.status==='finished'?btn('查看上一场结果','last-match','ghost small'):''}${btn('恢复全部卡牌','reset','ghost small')}<span class="subtle">恢复后双方重新拥有全套卡牌，方便重复体验。</span></div></main>`;
 }
 function catalog(){
   const isCollection=route==='collection';
@@ -221,9 +278,9 @@ function matchView(){
 function render({resetReading=false}={}){
   if(resetReading)readingOpen={log:false,lineup:false};
   else for(const [key,selector] of [['log','.log'],['lineup','.lineup-reference']]){const node=document.querySelector(selector);if(node)readingOpen[key]=node.open;}
-  app.innerHTML=`<div class="shell">${header()}${storageFailed?`<div class="save-warning" role="alert"><span>存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。</span>${btn('重试保存','retry-save','ghost small')}</div>`:''}${route==='match'?matchView():route==='home'?home():catalog()}${footer()}</div>`;scheduleAI();
+  app.innerHTML=`<div class="shell">${route==='tutorial'?'':header()}${storageFailed?`<div class="save-warning" role="alert"><span>存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。</span>${btn('重试保存','retry-save','ghost small')}</div>`:''}${route==='tutorial'?renderTutorial(store.tutorial,playedCard):route==='match'?matchView():route==='home'?home():catalog()}${footer()}</div>`;scheduleAI();
 }
-function send(action){try{const beforePhase=store.match.phase;store.match=dispatch(store.match,action);store.players.forEach((p,i)=>p.cards=structuredClone(store.match.inventories[i]));draft=selectionDraft(store.match);if(store.match.phase!=='select'||store.match.selections[0]!==null){delete store.match.selectionDraft;delete store.selectionDrafts[store.match.mode];draftNotice='';}save();render();if(beforePhase!==store.match.phase){if(store.match.phase==='lineup-reveal')window.scrollTo(0,0);else if(store.match.mode==='battle'&&store.battleCompact)document.querySelector('.combat-layout')?.scrollIntoView({block:'start'});}}catch(error){toast(error.message);}}
+function send(action){try{const beforePhase=store.match.phase;store.match=dispatch(store.match,action);store.players.forEach((p,i)=>p.cards=structuredClone(store.match.inventories[i]));draft=selectionDraft(store.match);if(store.match.phase!=='select'||store.match.selections[0]!==null){delete store.match.selectionDraft;delete store.selectionDrafts[store.match.mode];draftNotice='';}save();render();if(beforePhase!==store.match.phase){if(store.match.phase==='lineup-reveal')window.scrollTo(0,0);else if(store.match.mode==='battle'&&store.battleCompact)document.querySelector('.combat-layout')?.scrollIntoView({block:'start'});}maybeOpenEasterEgg();}catch(error){toast(error.message);}}
 function scheduleAI(){
   clearTimeout(timer);
   const m=store.match;
@@ -253,11 +310,32 @@ function start(mode){
 document.addEventListener('click',event=>{
   const target=event.target.closest('[data-action]');if(!target||target.disabled)return;
   const a=target.dataset.action,m=store.match,p=0;
+  if(a==='egg-next'){
+    if(Date.now()<eggAdvanceAt)return;
+    const next=nextEasterEgg(store.easterEgg,Number(target.dataset.step));
+    if(next!==store.easterEgg){store.easterEgg=next;save();showEasterEgg();}return;
+  }
+  if(a==='egg-pause')return pauseEasterEgg();
+  if(a==='egg-finish')return finishEasterEgg();
+  if(a==='egg-resume'&&store.easterEgg?.status==='paused'){store.easterEgg.status=store.easterEgg.step===5?'fireworks':'active';save();showEasterEgg();return;}
   if(a==='close-dialog'){document.querySelector('#dialog').close();return;}
   if(a==='close-card'){document.querySelector('#card-dialog').close();return;}
   if(a==='dismiss-release'){delete store.releaseNotice;save();render();return;}
   if(a==='retry-save'){const saved=save();render();if(saved)toast('已成功写入浏览器存档。');return;}
   if(a==='zoom')return openCard(target.dataset.card);
+  if(a==='tutorial-open')return openTutorial();
+  if(a==='tutorial-begin'){store.tutorial=beginTutorialLesson(store.tutorial);route='tutorial';document.querySelector('#dialog').close();save();render();window.scrollTo(0,0);return;}
+  if(a==='tutorial-skip'){store.tutorial=newTutorial('skipped');document.querySelector('#dialog').close();save();render();return;}
+  if(a==='tutorial-pause'){store.tutorial.status='paused';route='home';save();render();window.scrollTo(0,0);return;}
+  if(route==='tutorial'){
+    const type=a.replace(/^tutorial-/,''),action={type};
+    if(type==='choose')action.id=target.dataset.instance;
+    if(type==='rps')action.value=target.dataset.value;
+    if(type==='point')action.value=Number(target.dataset.value);
+    if(type==='attack')action.skill=Number(target.dataset.skill);
+    if(a.startsWith('tutorial-'))sendTutorial(action);
+    return;
+  }
   if(a==='battle-status'){const status=combatStatuses(m.battle,Number(target.dataset.player)).find(s=>s.id===target.dataset.kind);if(status)modal(status.label,`<p>${esc(status.detail)}</p>`);return;}
   if(a==='battle-layout'){store.battleCompact=!store.battleCompact;save();render();document.querySelector('.battle-match')?.scrollIntoView({block:'start'});return;}
   if(a==='save-preset'){
@@ -299,7 +377,7 @@ document.addEventListener('click',event=>{
     modal('恢复全部卡牌？','<p>你与 AI 将重新拥有全套异兽，每种一张。当前收藏与上一场记录将被替换，仅影响本浏览器。</p>','confirm-reset','恢复全部卡牌');return;
   }
   if(a==='confirm-reset'){
-    const presets=store.lineupPresets,compact=store.battleCompact;store=fresh();store.lineupPresets=presets;store.battleCompact=compact;store.selectionDrafts={};store.selectionLobby=false;draft=[];draftNotice='';route='home';save();document.querySelector('#dialog').close();render();return;
+    const presets=store.lineupPresets,compact=store.battleCompact,tutorial=store.tutorial;clearTimeout(eggTimer);store=fresh();store.easterEgg=null;store.lineupPresets=presets;store.battleCompact=compact;store.tutorial=tutorial;store.selectionDrafts={};store.selectionLobby=false;draft=[];draftNotice='';route='home';save();document.querySelector('#dialog').close();render();return;
   }
   if(a==='choose-card'){
     const id=target.dataset.instance,count=m.mode==='point'?5:1;
@@ -331,10 +409,16 @@ document.addEventListener('change',event=>{
   }
 });
 for(const d of document.querySelectorAll('dialog')){
-  d.addEventListener('close',scheduleAI);
+  d.addEventListener('close',()=>{if(store.tutorial.status==='welcome'){store.tutorial.status='skipped';save();}if(d.id==='easter-egg-dialog'&&['active','fireworks'].includes(store.easterEgg?.status)){clearTimeout(eggTimer);store.easterEgg.status='paused';save();render();}scheduleAI();});
+  if(d.id==='easter-egg-dialog'){
+    d.addEventListener('cancel',event=>{event.preventDefault();if(store.easterEgg?.status==='fireworks')finishEasterEgg();else pauseEasterEgg();});
+    continue;
+  }
   d.addEventListener('click',event=>{if(event.target!==d)return;const r=d.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)d.close();});
 }
-document.addEventListener('visibilitychange',scheduleAI);
+document.addEventListener('visibilitychange',()=>{scheduleAI();scheduleEggFireworks();});
 document.addEventListener('toggle',event=>{if(!event.target.isConnected)return;if(event.target.matches?.('.preset-list')){presetsOpen=event.target.open;return;}if(event.target.matches?.('.draft-overview')){draftOverviewOpen=event.target.open;return;}if(event.target.matches?.('.log, .lineup-reference')){readingOpen[event.target.matches('.log')?'log':'lineup']=event.target.open;scheduleAI();}},true);
-if(sessionUpdated)save();
+if(sessionUpdated||!hadSavedSession)save();
 render();
+if(store.tutorial.status==='welcome')welcomeTutorial();
+else maybeOpenEasterEgg();

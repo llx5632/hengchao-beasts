@@ -1,0 +1,22 @@
+#easter-egg-dialog{width:min(600px,calc(100% - 32px));padding:0;overflow:auto;border:1px solid #bda36c;background:#f4f0e5}
+#easter-egg-dialog::backdrop{background:#0b2422db;backdrop-filter:blur(6px)}
+.egg-message-card{display:flex;flex-direction:column;align-items:center;gap:24px;width:100%;padding:45px 35px 30px;border:0;background:transparent;color:#153c32;cursor:pointer;text-align:center;font:inherit}
+.egg-message-card:focus-visible{outline:3px solid #b58c3d;outline-offset:-7px}
+.egg-seal{font-size:43px;color:#af8c49;line-height:1}
+.egg-message-copy{font-family:KaiTi,"Microsoft YaHei",serif;font-size:29px;line-height:1.85;letter-spacing:.025em;max-width:100%;overflow-wrap:anywhere}
+.egg-message-card.is-letter .egg-message-copy{font-size:22px;line-height:2}
+.egg-click-hint{font-size:12px;color:#7a795f;line-height:1.8}
+.egg-dialog-footer{display:flex;justify-content:center;padding:0 24px 22px}
+.egg-later{border:0;background:transparent;color:#748072;font:12px/1.8 "Microsoft YaHei",sans-serif;padding:8px 15px;cursor:pointer;text-decoration:underline;text-underline-offset:4px}
+.egg-save-note{font-size:12px;color:#803e28;padding:0 25px 18px;line-height:1.8;text-align:center}
+#easter-egg-dialog.egg-fireworks-dialog{position:fixed;inset:0;margin:0;width:100vw;max-width:none;height:100dvh;max-height:none;border:0;border-radius:0;background:#091d24;color:#f2e9cf;overflow:hidden}
+.egg-sky{position:absolute;inset:0;overflow:hidden;pointer-events:none;background:radial-gradient(ellipse at 50% 85%,#193b40 0,transparent 70%)}
+.egg-burst{position:absolute;width:1px;height:1px}
+.egg-burst i{position:absolute;display:block;width:5px;height:5px;border-radius:50%;background:hsl(var(--hue) 80% 73%);box-shadow:0 0 8px 1px hsl(var(--hue) 85% 60%);opacity:0;animation:egg-spark 1.8s ease-out calc(var(--delay) + var(--trail)) 2 both}
+@keyframes egg-spark{0%,5%{opacity:0;transform:translate(0,0) scale(.2)}12%{opacity:1}65%{opacity:.9}100%{opacity:0;transform:translate(var(--dx),calc(var(--dy) + 38px)) scale(.2)}}
+.egg-celebration{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;min-height:100%;padding:35px;text-align:center;box-sizing:border-box}
+.egg-celebration h2{font:38px/1.7 KaiTi,serif;color:#f2e9cf;margin:0;text-shadow:0 2px 24px #061c24}
+.egg-celebration p{color:#d4c9a7;margin:0;font-size:14px;line-height:1.8}
+.egg-celebration .btn{color:#e8dec3;border-color:#a49873;background:#142e37d9}
+@media(max-width:600px){.egg-message-card{padding:33px 22px 23px;gap:19px}.egg-message-copy{font-size:25px}.egg-message-card.is-letter .egg-message-copy{font-size:19px;line-height:1.95}.egg-seal{font-size:34px}.egg-celebration h2{font-size:30px}}
+@media(prefers-reduced-motion:reduce){.egg-burst i{animation:none;opacity:.55;transform:translate(var(--dx),var(--dy)) scale(.65)}}

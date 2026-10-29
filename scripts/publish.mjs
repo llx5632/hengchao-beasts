@@ -1,4 +1,4 @@
-// 双击根目录“一键发布.cmd”；仅依赖已安装的 Node.js 和 Git。
+// 双击根目录“一键发布.cmd”；更新图片时另需 Python 和 Pillow。
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -43,15 +43,18 @@ function isPublishPath(path) {
   return publishPaths.some(entry => path === entry || path.startsWith(`${entry}/`));
 }
 
+async function question(prompt) {
+  const input = createInterface({ input: process.stdin, output: process.stdout });
+  try { return await input.question(prompt); }
+  finally { input.close(); }
+}
+
 export async function publish({
   root = resolve(dirname(fileURLToPath(import.meta.url)), '..'),
   run = command, env = process.env, proxy = windowsProxy,
   listTests = () => readdirSync(resolve(root, 'test')).filter(name => name.endsWith('.test.mjs')).map(name => `test/${name}`),
-  askTitle = async () => {
-    const input = createInterface({ input: process.stdin, output: process.stdout });
-    try { return await input.question('请输入本次提交标题（直接回车取消）：'); }
-    finally { input.close(); }
-  },
+  askUpdateImages = () => question('是否更新图片资源？输入 1 更新，其他输入或直接回车跳过：'),
+  askTitle = () => question('请输入本次提交标题（直接回车取消）：'),
   log = console.log
 } = {}) {
   const localGit = (...args) => run('git', args, { cwd: root, capture: true, env });
@@ -63,6 +66,17 @@ export async function publish({
   if (localGit('diff', '--name-only', '--diff-filter=U')) throw new Error('存在未解决的合并冲突，请处理后再发布。');
   const staged = localGit('-c', 'core.quotePath=false', 'diff', '--cached', '--name-only', '-z').split('\0').filter(Boolean);
   if (staged.some(path => !isPublishPath(path))) throw new Error('暂存区含发布范围之外的文件，请先单独提交或取消暂存这些文件。');
+
+  if (String(await askUpdateImages()).trim() === '1') {
+    log('\n更新图片资源…');
+    try {
+      run('python', ['-c', 'from PIL import Image'], { cwd: root, capture: true, env });
+    } catch (error) {
+      throw new Error(`更新图片需要可用的 Python 和 Pillow。请先确认 Python 可用，再运行 python -m pip install Pillow；同一 Python 环境通常只需安装一次。\n${error.message}`);
+    }
+    run('python', ['-X', 'utf8', 'scripts/compress-art.py', '1024', '85'], { cwd: root, env });
+    log('图片资源更新完成。');
+  }
 
   const title = String(await askTitle()).trim();
   if (!title) { log('已取消，没有执行提交或推送。'); return { cancelled: true }; }

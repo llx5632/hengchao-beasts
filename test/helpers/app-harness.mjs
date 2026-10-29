@@ -8,6 +8,9 @@ import * as flow from '../../dist/flow.js';
 import * as selection from '../../dist/selection.js';
 import * as combat from '../../dist/combat.js';
 import * as roster from '../../dist/roster.js';
+import * as tutorial from '../../dist/tutorial.js';
+import * as tutorialUI from '../../dist/tutorial-ui.js';
+import * as easterEgg from '../../dist/easter-egg.js';
 
 // Run the real UI handlers with an isolated storage adapter and clock.
 // Only details/dialog behavior used by these regressions is represented here;
@@ -16,10 +19,10 @@ const source=(await readFile(new URL('../../dist/app.js',import.meta.url),'utf8'
 export function appHarness(saved=null) {
   const listeners={},timers=new Map(),nodes=new Map(),storage=new Map();
   if(saved)storage.set(session.SAVE_KEY,JSON.stringify(saved));
-  let sequence=0,blocked=false,html='',renders=0;
+  let sequence=0,blocked=false,html='',renders=0,clock=1000000;
   const toast={style:{}},input={value:'测试阵容'};
   const dialog=()=>({open:false,showModal(){this.open=true;},close(){this.open=false;}});
-  const dialogs=[dialog(),dialog()];
+  const dialogs=[dialog(),dialog(),dialog()];
   const status={textContent:''};
   const app={get innerHTML(){return html;},set innerHTML(value){
     html=value;renders++;
@@ -32,13 +35,14 @@ export function appHarness(saved=null) {
     }
   }};
   const document={hidden:false,querySelector(selector){
-    const fixed={'#app':app,'#toast':toast,'#dialog':dialogs[0],'#card-dialog':dialogs[1],'#preset-name':input};
+    const fixed={'#app':app,'#toast':toast,'#dialog':dialogs[0],'#card-dialog':dialogs[1],'#easter-egg-dialog':dialogs[2],'#preset-name':input};
     if(selector in fixed)return fixed[selector];
     if(selector==='dialog[open], .log[open], .lineup-reference[open]')return dialogs.find(d=>d.open)??['.log','.lineup-reference'].map(s=>nodes.get(s)).find(n=>n?.open)??null;
     if(selector==='.flow-controls [role="status"]')return html.includes('class="flow-controls"')?status:null;
     return nodes.get(selector)??null;
   },querySelectorAll(){return [];},addEventListener(name,handler){listeners[name]=handler;}};
-  const context=vm.createContext({...data,...engine,...session,...ai,...flow,...selection,...combat,...roster,
+  const context=vm.createContext({...data,...engine,...session,...ai,...flow,...selection,...combat,...roster,...tutorial,...tutorialUI,...easterEgg,
+    Date:class extends Date{static now(){return clock;}},
     structuredClone,crypto,console,document,
     localStorage:{getItem:key=>storage.get(key)??null,setItem(key,value){if(blocked)throw new Error('QuotaExceededError');storage.set(key,value);}},
     setTimeout(callback,delay){const id=++sequence;timers.set(id,{callback,delay});return id;},clearTimeout(id){timers.delete(id);},
@@ -47,7 +51,8 @@ export function appHarness(saved=null) {
   vm.runInContext(source,context);
   return {
     run:code=>vm.runInContext(code,context),context,document,app,toast,input,dialog:dialogs[0],storage,status,
-    get renders(){return renders;},get delays(){return [...timers.values()].map(t=>t.delay);},
+    get renders(){return renders;},get delays(){return [...timers.values()].map(t=>t.delay);},eggDialog:dialogs[2],
+    elapse(ms){clock+=ms;},fireTimer(delay){const entry=[...timers.entries()].find(([,t])=>t.delay===delay);if(!entry)throw new Error('Missing timer '+delay);timers.delete(entry[0]);entry[1].callback();},
     blockStorage(value=true){blocked=value;},
     click(action,extra={}){listeners.click({target:{closest:()=>({dataset:{action,...extra}})}});},
     toggle(selector,open){const target=nodes.get(selector);if(!target)throw new Error(`Missing ${selector}`);target.open=open;listeners.toggle({target});return target;},

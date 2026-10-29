@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { publish } from '../scripts/publish.mjs';
 
-function harness({ fail = '', behind = 0, staged = '', title = '更新卡牌 "标题" & $(example)', config = '', changes = 'deploy/index.html' } = {}) {
+function harness({ fail = '', behind = 0, staged = '', title = '更新卡牌 "标题" & $(example)', config = '', changes = 'deploy/index.html', updateImages = '' } = {}) {
   const calls = [];
+  const events = [];
   let asked = 0;
   const run = (program, args, options) => {
     calls.push({ program, args, options });
-    const action = args.find(arg => ['fetch', 'push', 'commit', 'add', '--test', 'scripts/build-deploy.mjs'].includes(arg));
+    const action = args.find(arg => ['fetch', 'push', 'commit', 'add', '--test', 'scripts/build-deploy.mjs', 'scripts/compress-art.py', 'from PIL import Image'].includes(arg));
+    if (action) events.push(action);
     if (action === fail) throw new Error(`Simulated ${fail} failure`);
     if (args[0] === 'branch') return 'main';
     if (args[0] === 'remote') return 'https://github.com/llx5632/hengchao-beasts.git';
@@ -19,11 +21,49 @@ function harness({ fail = '', behind = 0, staged = '', title = '更新卡牌 "�
     return '';
   };
   return {
-    calls, asked: () => asked,
+    calls, events, asked: () => asked,
     execute: () => publish({ root: process.cwd(), run, proxy: () => 'http://127.0.0.1:65532',
-      listTests: () => ['test/example.test.mjs'], askTitle: async () => { asked++; return title; }, log: () => {} })
+      listTests: () => ['test/example.test.mjs'],
+      askUpdateImages: async () => { events.push('ask-images'); return updateImages; },
+      askTitle: async () => { events.push('ask-title'); asked++; return title; }, log: () => {} })
   };
 }
+
+test('输入1先更新图片，再询问标题、构建和推送，不执行依赖安装', async () => {
+  const h = harness({ updateImages: ' 1 ' });
+  assert.deepEqual(await h.execute(), { pushed: true });
+  assert.deepEqual(h.events.slice(0, 4), ['ask-images', 'from PIL import Image', 'scripts/compress-art.py', 'ask-title']);
+  const compress = h.calls.find(call => call.args.includes('scripts/compress-art.py'));
+  assert.equal(compress.program, 'python');
+  assert.deepEqual(compress.args, ['-X', 'utf8', 'scripts/compress-art.py', '1024', '85']);
+  assert(h.events.indexOf('scripts/compress-art.py') < h.events.indexOf('scripts/build-deploy.mjs'));
+  assert(!h.calls.some(call => call.args.includes('pip')));
+});
+
+for (const updateImages of ['', '0', '2', 'yes']) {
+  test(`图片选择${JSON.stringify(updateImages)}跳过更新，直接询问标题，不调用Python`, async () => {
+    const h = harness({ updateImages });
+    await h.execute();
+    assert.deepEqual(h.events.slice(0, 2), ['ask-images', 'ask-title']);
+    assert(!h.calls.some(call => call.program === 'python'));
+  });
+}
+
+for (const failure of ['from PIL import Image', 'scripts/compress-art.py']) {
+  test(`${failure}失败时不询问标题，也不构建或推送`, async () => {
+    const h = harness({ updateImages: '1', fail: failure });
+    await assert.rejects(h.execute(), failure === 'from PIL import Image' ? /python -m pip install Pillow/ : /Simulated/);
+    assert.equal(h.asked(), 0);
+    assert(!h.calls.some(call => call.args.some(arg => ['fetch', 'add', 'scripts/build-deploy.mjs', 'push'].includes(arg))));
+  });
+}
+
+test('更新图片后空标题取消，保留本机图片更新，不提交或推送', async () => {
+  const h = harness({ updateImages: '1', title: '' });
+  assert.deepEqual(await h.execute(), { cancelled: true });
+  assert(h.events.includes('scripts/compress-art.py'));
+  assert(!h.events.some(event => ['fetch', 'add', 'push'].includes(event)));
+});
 
 test('发布使用同一代理获取和推送，标题作为完整参数传递，截图不加入暂存', async () => {
   const h = harness();

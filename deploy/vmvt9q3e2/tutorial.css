@@ -1,0 +1,77 @@
+.tutorial-welcome .crest{display:block;font-size:42px;color:#9b8048;margin-bottom:18px}
+.tutorial-welcome h2{font-size:34px;line-height:1.45;margin:14px 0}
+.tutorial-welcome ol{padding-left:22px;margin:18px 0;line-height:2.2;font-size:13px}
+.tutorial-safe-note{padding:13px 16px;border:1px solid #cfc5ac;border-radius:5px;background:#ebe7da}
+.tutorial-top{display:flex;align-items:center;gap:20px;padding:18px max(24px,calc((100vw - 1060px)/2));border-bottom:1px solid var(--line);background:var(--paper)}
+.tutorial-brand{color:var(--ink);font-size:19px;font-weight:700;text-decoration:none;white-space:nowrap}
+.tutorial-top>span{font-size:12px;color:var(--muted);flex:1}
+.tutorial-wrap{max-width:1060px;margin:auto;padding:30px 28px 50px}
+.tutorial-progress{display:flex;gap:24px;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:25px}
+.tutorial-progress>span{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:12px;flex:1}
+.tutorial-progress b{font-size:18px;opacity:.55}
+.tutorial-progress .current{color:var(--ink);font-weight:700}
+.tutorial-progress .current b,.tutorial-progress .done b{color:#96753d;opacity:1}
+.tutorial-guide{border-left:3px solid #ae8b49;padding:3px 0 5px 22px;margin-bottom:25px}
+.tutorial-guide h1{font-size:29px;line-height:1.5;margin:8px 0 12px;letter-spacing:0}
+.tutorial-guide h1:focus{outline:none}
+.tutorial-guide p{font-size:15px;line-height:1.95;margin:0 0 12px;max-width:850px;color:var(--ink)}
+.tutorial-guide small{color:var(--muted);font-size:11px;line-height:1.8;display:block}
+.tutorial-play{padding:24px;border:1px solid var(--line);border-radius:8px;background:#f6f2e8}
+.tutorial-board{display:grid;grid-template-columns:1fr 1fr;gap:35px;max-width:690px;margin:0 auto}
+.tutorial-side{min-width:0;text-align:center}
+.tutorial-side h3{font-size:13px;margin:0 0 12px;font-weight:400;color:var(--muted)}
+.tutorial-beast{margin:0;min-width:0;text-align:center}
+.tutorial-beast .played-card{display:block;width:100%;max-width:180px;margin:auto}
+.tutorial-beast figcaption{display:flex;flex-direction:column;gap:5px;margin-top:11px;font-size:13px;line-height:1.6}
+.tutorial-beast figcaption>span{font-size:11px;color:var(--muted)}
+.tutorial-vitals{display:flex;flex-direction:column;gap:8px;max-width:230px;margin:16px auto 0;font-size:13px}
+.tutorial-vitals>span{display:flex;justify-content:space-between;gap:8px;padding:7px 10px;border:1px solid var(--line);border-radius:3px;background:var(--paper)}
+.tutorial-selection{display:grid;justify-content:center;grid-template-columns:minmax(0,250px);gap:18px}
+.tutorial-pick{padding:14px;border:1px solid transparent;border-radius:6px;min-width:0}
+.tutorial-pick.is-selected{border-color:#9b8048;background:#ebe2cc;box-shadow:inset 0 0 0 1px #9b8048}
+.tutorial-pick>.btn{width:100%;margin-top:15px;padding:11px 8px;font-size:12px}
+.tutorial-five{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.tutorial-five .tutorial-pick{padding:9px}
+.tutorial-five .tutorial-beast figcaption>strong{font-size:12px}
+.tutorial-roster+ .tutorial-roster{margin-top:28px;padding-top:18px;border-top:1px solid var(--line)}
+.tutorial-roster h3{font-size:15px;margin:0 0 18px}
+.tutorial-actions{position:sticky;bottom:0;display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:12px;margin-top:20px;padding:16px 0;background:var(--paper);border-top:1px solid var(--line);z-index:2}
+.tutorial-actions>span{font-size:12px;color:var(--muted);margin-right:auto}
+.tutorial-actions .btn{white-space:normal;line-height:1.6}
+.tutorial-rps{text-align:center;margin-top:22px;font-size:14px}
+.tutorial-rps .options{justify-content:center;display:flex}
+.tutorial-rps .btn{min-width:85px}
+.tutorial-play .btn:disabled{opacity:.32;cursor:not-allowed}
+.tutorial-outcome{display:flex;flex-direction:column;text-align:center;gap:8px;line-height:1.9;margin-top:24px;padding:18px;background:#e7dfcb;border-radius:5px;font-size:13px}
+.tutorial-outcome>strong{font-size:17px}
+.tutorial-interlude{text-align:center;padding:35px 10px;font-size:14px}
+.tutorial-interlude .crest{font-size:45px;color:#9b8048}
+.tutorial-interlude p{color:var(--muted);line-height:1.8}
+.tutorial-hidden{min-height:0;aspect-ratio:2/3;max-width:180px;margin:auto}
+.tutorial-table-scroll{overflow-x:auto;margin-top:23px}
+.tutorial-comparison{width:100%;max-width:520px;margin:auto;border-collapse:collapse;font-size:13px}
+.tutorial-comparison caption{padding:10px;font-size:12px;color:var(--muted)}
+.tutorial-comparison th,.tutorial-comparison td{padding:9px 13px;border:1px solid var(--line);text-align:center}
+.tutorial-comparison th{font-weight:500}
+.tutorial-metrics{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:7px;margin-top:22px}
+.tutorial-metrics>div{text-align:center;border:1px solid var(--line);padding:10px 4px;border-radius:3px;font-size:11px;line-height:1.7}
+.tutorial-metrics b{display:block;font-size:17px}
+.tutorial-metric-focus{background:#e4d3aa;color:#684f20;font-weight:700}
+.tutorial-points{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;margin:17px 0 0}
+.tutorial-points .btn{font-size:23px;padding:14px 5px}
+@media(max-width:700px){
+ .tutorial-top{padding:13px 16px;gap:10px;flex-wrap:wrap}
+ .tutorial-top>span{font-size:10px}.tutorial-top .btn{font-size:11px;padding:8px 11px}
+ .tutorial-brand{font-size:16px}.tutorial-wrap{padding:20px 16px 30px}
+ .tutorial-progress{gap:8px;margin-bottom:20px}.tutorial-progress>span{font-size:10px;gap:5px}.tutorial-progress b{font-size:14px}
+ .tutorial-guide{padding-left:14px}.tutorial-guide h1{font-size:23px}.tutorial-guide p{font-size:14px;line-height:1.9}
+ .tutorial-play{padding:16px 12px}.tutorial-board{gap:15px}.tutorial-beast .played-card{max-width:145px}
+ .tutorial-beast figcaption{font-size:12px}.tutorial-beast figcaption>span{font-size:10px}
+ .tutorial-vitals{font-size:11px}.tutorial-vitals>span{padding:7px 6px}
+ .tutorial-five{grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.tutorial-five .tutorial-pick{padding:9px}
+ .tutorial-actions{padding:13px 0;gap:9px}.tutorial-actions .btn{font-size:12px;padding:11px 14px}
+ .tutorial-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.tutorial-points{grid-template-columns:repeat(4,minmax(0,1fr))}
+ .tutorial-welcome h2{font-size:27px}.tutorial-welcome .dialog-actions{flex-wrap:wrap}
+ .tutorial-outcome{font-size:12px;padding:15px 10px}.tutorial-outcome>strong{font-size:15px}
+ .tutorial-hidden{max-width:145px}.tutorial-hidden p{font-size:17px}
+}
