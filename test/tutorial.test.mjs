@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { CARD, METRICS, POINT_NUMBERS, pointMetricIndex } from '../dist/data.js';
 import { freshSession, SAVE_KEY } from '../dist/session.js';
 import { newTutorial, normalizeTutorial, beginTutorialLesson, tutorialAction, tutorialGuidance } from '../dist/tutorial.js';
+import { renderTutorial } from '../dist/tutorial-ui.js';
 import { appHarness } from './helpers/app-harness.mjs';
 
 const act=(s,type,extra={})=>tutorialAction(s,{type,...extra});
@@ -105,4 +106,37 @@ test('无教学数据的老存档可用，未知教学版本安全回到欢迎',
   assert.equal(normalizeTutorial(null,false).status,'available');assert.equal(normalizeTutorial(null,true).status,'welcome');
   assert.equal(normalizeTutorial({version:999,status:'active'},true).status,'welcome');
   assert.equal(normalizeTutorial({version:1,status:'active',lesson:'battle',draft:[]}).status,'welcome');
+});
+
+test('教学拼点展示双零、强项预演与真实揭晓，后续总和7高亮第1项',()=>{
+  const view=s=>renderTutorial(s,()=>''),first=pointWin();
+  let s=select(act(throughBattle(),'next'));s=act(act(s,'ready'),'continue');
+  assert.match(view(s),/总和 6 \/ 12/);assert.match(view(s),/0＋0＝0/);
+  assert.doesNotMatch(view(s),/aria-current="true"/);
+  s=act(s,'point',{value:0});assert.match(view(s),/双零亮牌，用原卡重比/);
+  s=act(s,'next');assert.match(view(s),/教学预演/);assert.match(view(s),/3＋1＝4/);
+  assert.match(view(first),/本次出点已揭晓/);assert.match(view(first),/你 45 ＞ AI 35/);
+  s=act(act(first,'next'),'continue');
+  assert.doesNotMatch(view(s),/教学预演|aria-current="true"|当前卡牌的六项静态数值/);
+  s=act(s,'point',{value:6});const html=view(s);
+  assert.match(html,/6＋1＝7/);assert.match(html,/第1项 · 名字字数/);
+  assert.match(html,/tutorial-metric-focus" aria-current="true"><small>总和 1 \/ 7/);
+  assert.match(html,/<th>涡须鲵<\/th><th>根冠鹿<\/th>/);
+  assert.doesNotMatch(html,/tutorial-metric-focus" aria-current="true"><small>总和 4 \/ 10/);
+});
+
+test('属性、HP变化与撤退反馈紧邻对应卡牌和操作，不把多步撤退说成一次成功',()=>{
+  const view=s=>renderTutorial(s,()=>''),attributeHtml=view(attribute());
+  assert.match(attributeHtml,/tutorial-element">火属性/);assert.match(attributeHtml,/火克草 → 直接获胜/);
+  let s=act(battle(),'next');s=act(act(s,'rps',{value:'rock'}),'next');
+  assert.match(view(s),/AI的HP：140 → 120/);
+  s=act(s,'attack',{skill:0});
+  assert.match(view(s),/tutorial-vital-changed">剩余 HP<b><span class="tutorial-before">140<\/span> → 120/);
+  s=act(act(act(s,'next'),'rps',{value:'rock'}),'next');s=act(s,'next');
+  assert.match(view(s),/tutorial-vital-changed">剩余 HP<b><span class="tutorial-before">65<\/span> → 30/);
+  s=act(act(act(s,'next'),'rps',{value:'rock'}),'next');
+  assert.match(view(s),/本次撤退：剩余1 → 0/);assert.match(view(s),/3 → 2/);
+  assert.match(view(s),/降到0才成功/);assert.match(tutorialGuidance(s).text,/多次撤退/);
+  s=act(s,'retreat');assert.match(view(s),/tutorial-vital-changed">剩余撤退<b><span class="tutorial-before">1<\/span> → 0/);
+  assert.match(view(s),/其他卡可能需要多次争得行动权/);
 });

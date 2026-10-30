@@ -43,7 +43,7 @@ function modal(title,body,action=null,label='确定'){
 }
 function welcomeTutorial(){
   const d=document.querySelector('#dialog');
-  d.innerHTML=`<div class="tutorial-welcome"><span class="crest">✦</span><div class="eyebrow">欢迎来到衡潮群岛</div><h2 id="dialog-title">你的第一张谱印，<br>从这里开始</h2><p>跟随三段练习，学会用属性克制赢得交锋、在不利局势下撤退，以及在拼点中发挥自己的强项。</p><ol><li>炭铃对根冠鹿：低阶也能凭属性获胜</li><li>苔团对负潮巨鳖：进攻、受击，再撤退</li><li>五张谱印的拼点：以己之长，攻彼之短</li></ol><p class="tutorial-safe-note">这是独立练习，不会改变你的正式收藏与已有对局。首次访问会自动欢迎，之后也可在大厅重温。</p><div class="dialog-actions">${btn('暂不学习','tutorial-skip','ghost')}${btn('开始新手教程','tutorial-begin','','autofocus')}</div></div>`;
+  d.innerHTML=`<div class="tutorial-welcome"><span class="crest" aria-hidden="true">✦</span><div class="eyebrow">欢迎来到衡潮群岛</div><h2 id="dialog-title">你的第一张谱印，<br>从这里开始</h2><p>这是一款原创异兽卡牌收集与对战游戏。在受“衡潮”影响的群岛上，你将作为探索者，用记录异兽属性、技能与体型的卡牌——“谱印”，与教学 AI 练习，再挑战正式对局。</p><div class="tutorial-intro-modes" aria-label="同一套谱印，两种玩法"><section><h3>战斗模式 · 相性决斗</h3><p>各选一张谱印，先看属性克制，再以猜拳争取进攻或撤退的机会。低阶异兽也有机会战胜高阶对手。</p></section><section><h3>拼点模式 · 衡量试炼</h3><p>各选五张谱印，秘密出点决定比较项目。HP、伤害、身高、体重都能成为优势，用自己的强项对抗对方的弱项。</p></section></div><p class="tutorial-intro-stakes"><strong>赢取谱印，也要懂得保住它。</strong>正式对局会按规则赢取或失去出战谱印，逐渐改变你的收藏。</p><div class="tutorial-safe-note"><strong>接下来，先安心练习</strong><p>按顺序体验属性克制、进攻与撤退、拼点强弱项。教学使用独立卡牌，不会改变你的正式收藏与已有对局；可以随时暂停，之后从大厅继续或重温。</p></div><div class="dialog-actions">${btn('暂不学习','tutorial-skip','ghost')}${btn('开始新手教程','tutorial-begin','','autofocus')}</div></div>`;
   d.showModal();scheduleAI();
 }
 function openTutorial(){
