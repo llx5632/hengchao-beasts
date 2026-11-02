@@ -1,14 +1,15 @@
 import { CARD } from './data.js';
 export function battleEndedBySurrender(m){return Boolean(m.mode==='battle'&&m.status==='finished'&&m.transfers?.some(t=>t.reason==='战斗投降'));}
-const empty=()=>({charge:[false,false],shield:[0,0],echo:[0,0],burn:[0,0],mark:[null,null],weaken:[0,0],root:[0,0]});
+const empty=()=>({charge:[false,false],shield:[0,0],echo:[0,0],burn:[0,0],mark:[null,null],weaken:[0,0],root:[0,0],seal:[false,false],debt:[0,0]});
 export function clearCombatStatuses(s){Object.assign(s,empty());}
 export function combatStatusKey(s){return JSON.stringify(Object.entries(empty()).map(([k,v])=>s[k]??v));}
 export function combatStatusValue(s,p){
-  const v=i=>(s.charge?.[i]?20:0)+(s.shield?.[i]??0)*.7+Math.min(30,Math.floor((s.echo?.[i]??0)/2))*.6+(s.root?.[i]??0)*14-(s.burn?.[i]??0)*10-(s.weaken?.[i]??0)*6-(s.mark?.[i]===1-i?18:0);
+  const v=i=>(s.charge?.[i]?20:0)+(s.shield?.[i]??0)*.7+Math.min(30,Math.floor((s.echo?.[i]??0)/2))*.6+(s.root?.[i]??0)*14+(s.seal?.[i]?15:0)-(s.debt?.[i]??0)-(s.burn?.[i]??0)*10-(s.weaken?.[i]??0)*6-(s.mark?.[i]===1-i?18:0);
   return v(p)-v(1-p);
 }
 export function combatStatuses(s,p){
   const c=CARD[s.cards[p]],out=[],other=1-p,add=(id,label,active,detail)=>out.push({id,label,active,detail});
+  if(c.id==='panjia'||s.seal?.[p]||s.debt?.[p])add('seal',s.debt?.[p]?`待结伤势${s.debt[p]} · 再次受伤结清`:s.seal?.[p]?'封伤保护 · 暂存50%，最多30':'封伤：未生效',!!(s.seal?.[p]||s.debt?.[p]),'来源：矿甲封伤。下次对方正数直接伤害暂存一半、向下取整、最多30；再次实际受伤（含烙印）时结清，0伤害不触发。有待结伤势时使用本技能取消全部旧伤，本次不获保护；已有保护不叠加、不刷新。猜拳和行动结束不自动结清。战斗结束清空。');
   if(c.id==='xianbei')add('charge',s.charge?.[p]?'蓄势：裂风突袭＋30':'蓄势：未蓄势',!!s.charge?.[p],'来源：蓄势扑击。仅下次裂风突袭消耗，不叠加；猜拳、受伤及未成功撤退保留，结束清空。');
   if(c.id==='dielin'||s.shield?.[p])add('shield',s.shield?.[p]?`护盾${s.shield[p]} · 下次受击消耗`:'护盾：未生效',!!s.shield?.[p],'来源：迎击护壳。抵消下次技能进攻至多15直接伤害，0伤害也消耗，余量不留、不叠加。不抵消持续伤害，不取消存活时的附加效果。');
   if(c.id==='jinzong')add('desperate',s.hp[p]<=60?'绝境生效 · 反扑60':'绝境：未生效（HP＞60）',s.hp[p]<=60,'来源：绝境反扑。使用时HP≤60总伤害60，否则30；回血高于60即失效，不自动反击。');
@@ -23,8 +24,25 @@ export function combatStatuses(s,p){
 export function resolveCombatAction(battle,player,action){
   const state={...battle,hp:[...battle.hp],remaining:[...battle.remaining]};
   for(const [k,v] of Object.entries(empty()))state[k]=[...(battle[k]??v)];
-  const other=1-player,startBurn=[...state.burn],events=[],effects={healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false};
+  const other=1-player,startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],events=[],effects={healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0]};
   const label=p=>CARD[state.cards[p]].name;let text='',breakdown=null;
+  // Each positive damage event consumes existing debt; newly deferred damage waits
+  // for another event, including a later burn event in this same action.
+  function receiveDamage(p,amount,direct=false){
+    if(amount<=0)return 0;
+    const oldDebt=state.debt[p];let deferred=0;
+    if(direct&&state.seal[p]){
+      deferred=Math.min(30,Math.floor(amount/2));state.seal[p]=false;state.debt[p]=deferred;
+      effects.deferred[p]+=deferred;
+      events.push(`${label(p)}消耗封伤保护，暂存${deferred}伤害，再次受伤时结清`);
+    }
+    const damage=Math.min(state.hp[p],amount-deferred);state.hp[p]-=damage;
+    if(oldDebt&&damage>0){
+      const paid=Math.min(state.hp[p],oldDebt);state.hp[p]-=paid;state.debt[p]=0;effects.settled[p]+=paid;
+      events.push(`${label(p)}再次受伤，结清待结伤势${oldDebt}（实际追加扣血${paid}）`);
+    }
+    return damage;
+  }
   function outcome(finished=false,winner=null){
     if(finished){effects.burnSkipped=startBurn.some(Boolean)&&!effects.burnDamage.some(Boolean);clearCombatStatuses(state);}
     else for(const p of [0,1])if(CARD[state.cards[p]].id==='jinzong'){
@@ -36,7 +54,7 @@ export function resolveCombatAction(battle,player,action){
   function actionEnd(){
     // Snapshot eligibility: newly applied damage waits; existing refreshed damage still ticks.
     for(const p of [0,1])if(startBurn[p]){
-      effects.burnDamage[p]=Math.min(15,state.hp[p]);state.hp[p]-=effects.burnDamage[p];state.burn[p]--;
+      effects.burnDamage[p]=receiveDamage(p,15);state.burn[p]--;
       events.push(`${label(p)}受到${effects.burnDamage[p]}烙印伤害，${state.burn[p]?`剩余${state.burn[p]}次双方行动`:'烙印已结束'}`);
     }
     const dead=state.hp.map(h=>h===0);
@@ -61,8 +79,8 @@ export function resolveCombatAction(battle,player,action){
   if(state.weaken[player]){state.weaken[player]--;events.push(`${label(player)}进攻被削弱25%，${raw}→${afterReduction}，剩余${state.weaken[player]}次`);}
   const blocked=Math.min(afterReduction,state.shield[other]);
   if(state.shield[other]){state.shield[other]=0;events.push(`${label(other)}的护盾抵消${blocked}伤害，已消耗`);}
-  const damage=Math.min(state.hp[other],Math.max(0,afterReduction-blocked));state.hp[other]-=damage;
-  breakdown={base:skill.damage,bonus,raw,multiplier,afterReduction,blocked,damage};text=`${skill.name}造成 ${damage} 伤害（直接）`;
+  const damage=receiveDamage(other,Math.max(0,afterReduction-blocked),true);
+  breakdown={base:skill.damage,bonus,raw,multiplier,afterReduction,blocked,damage,directLethal:state.hp[other]===0};text=`${skill.name}造成 ${damage} 伤害（直接）`;
   if(state.hp[other]===0)return outcome(true,player);
   if(CARD[state.cards[other]].id==='mingnang'&&damage>0){const old=state.echo[other];state.echo[other]=damage;events.push(`${label(other)}回响记录${old?'由'+old+'更新为':'为'}${damage}`);}
   if(skill.effect==='heal'){effects.healing=Math.min(skill.amount,CARD[state.cards[player]].hp-state.hp[player]);state.hp[player]+=effects.healing;text+=`，自己恢复 ${effects.healing} HP`;}
@@ -77,10 +95,15 @@ export function resolveCombatAction(battle,player,action){
     else if(state.remaining[player]>=CARD[state.cards[player]].retreat+2)events.push(`${label(player)}剩余撤退已达5，无法蓄能`);
     else{state.remaining[player]++;effects.ownRetreatAdded=1;state.root[player]=2;events.push(`${label(player)}剩余撤退＋1至${state.remaining[player]}，获得2次根劲`);}
   }
+  if(skill.effect==='seal'){
+    if(startDebt){state.debt[player]=0;effects.cancelled[player]=startDebt;events.push(`${label(player)}取消待结伤势${startDebt}，本次不获得封伤保护`);}
+    else if(startSeal)events.push(`${label(player)}已有封伤保护，不叠加、不刷新`);
+    else{state.seal[player]=true;events.push(`${label(player)}获得封伤保护：下次直接伤害暂存50%，最多30`);}
+  }
   return actionEnd();
 }
 export function previewSkill(battle,player,skillIndex){
   const other=1-player,skill=CARD[battle.cards[player]].skills[skillIndex],r=resolveCombatAction(battle,player,{type:'attack',skill:skillIndex});
-  const directLethal=r.breakdown.damage===battle.hp[other];
-  return {damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:directLethal&&['heal','delay','charge','shield','burn','mark','weaken','root'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
+  const directLethal=r.breakdown.directLethal;
+  return {deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:directLethal&&['heal','delay','charge','shield','burn','mark','weaken','root','seal'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
 }

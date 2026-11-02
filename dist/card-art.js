@@ -10,7 +10,7 @@ export const CURRENT_ART = Object.freeze({
   "genguan": "当前卡面/根冠鹿-技能更新.png",
   "xunbei": "当前卡面/蕈背行者-技能更新.png",
   "liejing": "当前卡面/裂晶蜥-技能更新.png",
-  "panjia": "当前卡面/磐甲.png",
+  "panjia": "当前卡面/磐甲-技能更新.png",
   "mingjing": "当前卡面/空谷鸣晶蝠.png",
   "zhiyi": "当前卡面/纸翼.png",
   "fuyun": "当前卡面/负云长鬃驼.png",

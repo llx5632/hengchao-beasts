@@ -11,7 +11,7 @@ const rows = [
   ['genguan','根冠鹿','草','高阶',130,3,1.9,95,'根须锚定土层蓄力，分枝长角释放沉重撞击。',hit('根角冲撞',45,'root-strike',20),hit('扎根蓄能',20,'root',2)],
   ['xunbei','蕈背行者','草','中阶',105,3,.7,40,'共生菌群散布抑力孢雾，菌丝缓缓修补软组织。',hit('抑力孢雾',20,'weaken',25),hit('孢息修复',10,'heal',15)],
   ['liejing','裂晶蜥','岩','中阶',90,2,.9,22,'飞晶嵌入猎物鳞隙，晶化牙列循痕咬合。',hit('碎晶飞掷',25,'mark',1),hit('裂晶猛咬',40,'bite',25)],
-  ['panjia','磐甲','岩','高阶',160,4,1.6,520,'犀形异兽，矿化装甲和身体质量赋予强大撞击力。',hit('磐角重撞',40),hit('岩躯碾压',60)],
+  ['panjia','磐甲','岩','高阶',160,4,1.6,520,'犀形异兽，矿化装甲和身体质量赋予强大撞击力。',hit('矿甲封伤',40,'seal',30),hit('岩躯碾压',60)],
   ['mingjing','空谷鸣晶蝠','岩','低阶',70,1,.6,4,'轻小的洞谷蝠兽，共鸣晶体强化声波与回声。',hit('鸣晶脉冲',30),hit('回声阻途',15,'delay',1)],
   ['zhiyi','纸翼','风','低阶',55,1,.25,.4,'薄翼小雀，轻盈易退，以羽片和小股气流攻击。',hit('纸羽飞刃',15),hit('风切穿刺',20)],
   ['fuyun','负云长鬃驼','风','高阶',135,3,3.6,180,'气囊长鬃如背负云朵，调节呼吸以恢复体力。',hit('云鬃撞击',40),hit('蓄风回息',20,'heal',15)],
@@ -37,7 +37,7 @@ export const METRICS = Object.freeze([
 ]);
 // Sum 0 is the reveal-and-repick draw; positive sums cycle through items 1..6.
 export const pointMetricIndex = sum => sum===0 ? null : (sum + METRICS.length - 1) % METRICS.length;
-export const skillText = s => `${s.damage} 伤害${({heal:` · 自己回血 ${s.amount}`,delay:` · 对方剩余撤退 +${s.amount}`,charge:' · 下一次裂风突袭＋30，不叠加',burst:' · 蓄势时65伤害，用后清除',shield:' · 获得下次受击减伤15的护盾，不叠加',desperate:' · 自己剩余HP≤60时改为60伤害',echo:' · 追加上次实际受伤量的一半，向下取整、最多＋30，用后清除',burn:' · 之后2次任一方行动结束，对方各受15烙印伤害；刷新不叠加',mark:' · 留下1个晶痕，不叠加',bite:' · 消耗对方晶痕，伤害＋25',weaken:' · 对方之后2次进攻伤害降低25%，刷新不叠加',root:' · 无根劲且自己剩余撤退＜5时，剩余撤退＋1，获得2次根劲','root-strike':' · 有根劲时伤害＋20，消耗1次'})[s.effect]??''}`;
+export const skillText = s => `${s.damage} 伤害${({seal:' · 有待结伤势则取消，本次不获保护；否则获得不叠加的封伤保护，下次直接受伤暂存一半、最多30，再次受伤时结清',heal:` · 自己回血 ${s.amount}`,delay:` · 对方剩余撤退 +${s.amount}`,charge:' · 下一次裂风突袭＋30，不叠加',burst:' · 蓄势时65伤害，用后清除',shield:' · 获得下次受击减伤15的护盾，不叠加',desperate:' · 自己剩余HP≤60时改为60伤害',echo:' · 追加上次实际受伤量的一半，向下取整、最多＋30，用后清除',burn:' · 之后2次任一方行动结束，对方各受15烙印伤害；刷新不叠加',mark:' · 留下1个晶痕，不叠加',bite:' · 消耗对方晶痕，伤害＋25',weaken:' · 对方之后2次进攻伤害降低25%，刷新不叠加',root:' · 无根劲且自己剩余撤退＜5时，剩余撤退＋1，获得2次根劲','root-strike':' · 有根劲时伤害＋20，消耗1次'})[s.effect]??''}`;
 export function inventory(player, laboratory = false) {
   const ids = laboratory ? CARDS.flatMap(c => [c.id,c.id]) : STARTERS;
   return ids.map((cardId,i) => ({ id:`${player}-${laboratory ? 'lab' : 'start'}-${i}`, cardId }));

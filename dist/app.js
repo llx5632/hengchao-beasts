@@ -198,17 +198,24 @@ function skillButton(battle,p,skill,index){
   if(skill.effect==='weaken'&&!actual.effectSkipped)notes.push(`${battle.weaken?.[1-p]?'刷新':'施加'}攻击削弱25%，之后2次进攻，不叠加。`);
   if(skill.effect==='root-strike')notes.push(b.bonus?`本次消耗1次根劲，使用后剩${battle.root[p]-1}次。`:'没有根劲，本次基础伤害45。');
   if(skill.effect==='root'&&!actual.effectSkipped)notes.push(actual.ownRetreatAdded?`自己剩余撤退${battle.remaining[p]} → ${actual.ownRetreat}，获得2次根劲。`:battle.root?.[p]?'已有根劲，不刷新、不重复增加撤退。':'自己剩余撤退已达5，本次无法蓄能，仅造成伤害。');
+  if(skill.effect==='seal'&&!actual.effectSkipped)notes.push(actual.cancelled[p]?`取消待结伤势${actual.cancelled[p]}，本次不获得封伤保护。`:battle.seal?.[p]?'已有封伤保护，不叠加、不刷新。':'获得封伤保护：下次直接伤害暂存一半，最多30；再次实际受伤时结清。');
+  for(const q of [0,1]){
+    if(actual.deferred[q])notes.push(`${name(q)}本次暂存${actual.deferred[q]}伤害，不是永久减伤。`);
+    if(actual.settled[q])notes.push(`${name(q)}再次受伤，旧伤实际追加扣血${actual.settled[q]}。`);
+  }
   for(const q of [0,1])if(actual.burnDamage[q])notes.push(`${name(q)}行动末烙印伤害 ${actual.burnDamage[q]}`);
   if(actual.burnSkipped)notes.push('本次立即结束，不再结算持续伤害。');
   const impact=`实际伤害 ${actual.damage}${skill.effect==='heal'?` · 实际回血 ${actual.healing}`:skill.effect==='delay'?` · 对方剩余撤退 +${actual.delay}`:''}`;
   const afterShield=Math.max(0,b.afterReduction-b.blocked);
-  const calculation=`基础${b.base}${b.bonus?`＋强化${b.bonus}`:''}${b.multiplier!==1?`→削弱25%后${b.afterReduction}`:''}${b.blocked?`－护盾${b.blocked}`:''}＝${afterShield}${actual.damage<afterShield?`；实际扣血受剩余HP限制为${actual.damage}`:''}`;
+  const immediate=afterShield-actual.deferred[1-p];
+  const calculation=`基础${b.base}${b.bonus?`＋强化${b.bonus}`:''}${b.multiplier!==1?`→削弱25%后${b.afterReduction}`:''}${b.blocked?`－护盾${b.blocked}`:''}${actual.deferred[1-p]?`－暂存${actual.deferred[1-p]}`:''}＝${immediate}${actual.damage<immediate?`；实际直接扣血受剩余HP限制为${actual.damage}`:''}${actual.settled[1-p]?`；旧伤另扣${actual.settled[1-p]}`:''}`;
   return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='heal'||actual.burnDamage[p]?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
 }
 function retreatButton(b,p){
   const r=resolveCombatAction(b,p,{type:'retreat'}),burn=r.effects.burnDamage;
+  const oldWound=r.effects.settled[p]?` · 再次受伤追加旧伤${r.effects.settled[p]}`:'';
   const note=r.finished?(r.winner===null?' · 本次平局':r.winner===p?' · 持续伤害使对方归零，本次获胜':' · 警告：行动后持续伤害会使自己归零判负'):burn.some(Boolean)?` · 烙印：${burn.map((n,q)=>n?`${name(q)}－${n}HP`:'').filter(Boolean).join('，')}`:'';
-  return btn(`选择撤退 · ${b.remaining[p]} → ${r.state.remaining[p]}${note}`,'retreat','ghost');
+  return btn(`选择撤退 · ${b.remaining[p]} → ${r.state.remaining[p]}${note}${oldWound}`,'retreat','ghost');
 }
 function privateTurn(m,p){
   if(m.phase==='select'){

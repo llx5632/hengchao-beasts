@@ -3,7 +3,7 @@ import { createMatch } from './engine.js';
 import { normalizeDifficulty } from './ai.js';
 
 // Keep the earlier hotseat save separate from the local player-versus-AI edition.
-export const RULES_REVISION = '2026-10-29-four-rework-both-actions';
+export const RULES_REVISION = '2026-11-02-panjia-seal';
 export const SAVE_KEY = 'hengchao-local-pve-v2';
 export function freshSession() {
   return {
