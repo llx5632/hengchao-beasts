@@ -1,14 +1,34 @@
 import { CARD } from './data.js';
 export function battleEndedBySurrender(m){return Boolean(m.mode==='battle'&&m.status==='finished'&&m.transfers?.some(t=>t.reason==='战斗投降'));}
-const empty=()=>({charge:[false,false],shield:[0,0],echo:[0,0],burn:[0,0],mark:[null,null],weaken:[0,0],root:[0,0],seal:[false,false],debt:[0,0]});
+const empty=()=>({charge:[false,false],shield:[0,0],echo:[0,0],burn:[0,0],mark:[null,null],weaken:[0,0],root:[0,0],seal:[false,false],debt:[0,0],wind:[-1,-1],prediction:[null,null],foresight:[0,0]});
+// One invocation per resolved, non-tied RPS. Preview/AI use the same transition.
+export function applyRpsLoss(battle,loser){
+  const wind=[...(battle.wind??[-1,-1])];
+  if(wind[loser]>=0)wind[loser]=Math.min(2,wind[loser]+1);
+  return {...battle,wind};
+}
+// Keep the existence of an opponent's sealed prediction, never its private choice.
+export function battleForViewer(battle,viewer){
+  const prediction=[...(battle.prediction??[null,null])];
+  if(prediction[1-viewer])prediction[1-viewer]='hidden';
+  return {...battle,prediction};
+}
+export function battleActions(battle,player){
+  return CARD[battle.cards[player]].skills.flatMap((s,skill)=>s.effect==='predict'&&!battle.prediction?.[player]?[{type:'attack',skill,prediction:'attack'},{type:'attack',skill,prediction:'retreat'}]:[{type:'attack',skill}]).concat({type:'retreat'});
+}
 export function clearCombatStatuses(s){Object.assign(s,empty());}
 export function combatStatusKey(s){return JSON.stringify(Object.entries(empty()).map(([k,v])=>s[k]??v));}
 export function combatStatusValue(s,p){
-  const v=i=>(s.charge?.[i]?20:0)+(s.shield?.[i]??0)*.7+Math.min(30,Math.floor((s.echo?.[i]??0)/2))*.6+(s.root?.[i]??0)*14+(s.seal?.[i]?15:0)-(s.debt?.[i]??0)-(s.burn?.[i]??0)*10-(s.weaken?.[i]??0)*6-(s.mark?.[i]===1-i?18:0);
+  const v=i=>(s.charge?.[i]?20:0)+(s.shield?.[i]??0)*.7+Math.min(30,Math.floor((s.echo?.[i]??0)/2))*.6+(s.root?.[i]??0)*14+(s.seal?.[i]?15:0)-(s.debt?.[i]??0)-(s.burn?.[i]??0)*10-(s.weaken?.[i]??0)*6-(s.mark?.[i]===1-i?18:0)+((s.wind?.[i]??-1)<0?0:[18.75,37.5,50][s.wind[i]])+(s.prediction?.[i]?23:0)+(s.foresight?.[i]??0);
   return v(p)-v(1-p);
 }
-export function combatStatuses(s,p){
+export function combatStatuses(s,p,viewer=0){
   const c=CARD[s.cards[p]],out=[],other=1-p,add=(id,label,active,detail)=>out.push({id,label,active,detail});
+  if(c.id==='xuanjiao')add('wind',(s.wind?.[p]??-1)<0?'逆风：未蓄势':s.wind[p]===0?'逆风蓄势0层':`风压${s.wind[p]}层 · 下次进攻＋${s.wind[p]*25}`,(s.wind?.[p]??-1)>=0,'来源：逆风蓄势。进入0层后每次猜拳落败积1层，每层＋25，最多2层。平手不积层；下一次任一技能进攻消耗整个蓄势，包括0层。再次使用逆风蓄势先释放旧层，再重新进入0层。未成功撤退保留，结束清空。');
+  if(c.id==='chaojing'){
+    const pending=s.prediction?.[p],choice=p===viewer&&pending&&pending!=='hidden'?(pending==='attack'?'进攻':'撤退'):null;
+    add('prediction',pending?(choice?`预判${choice} · 等待对方行动`:'已封存预判 · 行动后揭晓'):s.foresight?.[p]?'预判成功 · 下次进攻＋30':'预判：未布置',!!(pending||s.foresight?.[p]),`来源：伏路预判。${choice?`自己已秘密选择${choice}。`:''}对方下一次实际行动全部结束后揭晓，猜中且战斗继续则下次任一技能进攻＋30；不叠加。等待时再次施放保留原选择，不可改选。未成功撤退保留增益；成功撤退或战斗结束不追加攻击。`);
+  }
   if(c.id==='panjia'||s.seal?.[p]||s.debt?.[p])add('seal',s.debt?.[p]?`待结伤势${s.debt[p]} · 再次受伤结清`:s.seal?.[p]?'封伤保护 · 暂存50%，最多30':'封伤：未生效',!!(s.seal?.[p]||s.debt?.[p]),'来源：矿甲封伤。下次对方正数直接伤害暂存一半、向下取整、最多30；再次实际受伤（含烙印）时结清，0伤害不触发。有待结伤势时使用本技能取消全部旧伤，本次不获保护；已有保护不叠加、不刷新。猜拳和行动结束不自动结清。战斗结束清空。');
   if(c.id==='xianbei')add('charge',s.charge?.[p]?'蓄势：裂风突袭＋30':'蓄势：未蓄势',!!s.charge?.[p],'来源：蓄势扑击。仅下次裂风突袭消耗，不叠加；猜拳、受伤及未成功撤退保留，结束清空。');
   if(c.id==='dielin'||s.shield?.[p])add('shield',s.shield?.[p]?`护盾${s.shield[p]} · 下次受击消耗`:'护盾：未生效',!!s.shield?.[p],'来源：迎击护壳。抵消下次技能进攻至多15直接伤害，0伤害也消耗，余量不留、不叠加。不抵消持续伤害，不取消存活时的附加效果。');
@@ -24,7 +44,7 @@ export function combatStatuses(s,p){
 export function resolveCombatAction(battle,player,action){
   const state={...battle,hp:[...battle.hp],remaining:[...battle.remaining]};
   for(const [k,v] of Object.entries(empty()))state[k]=[...(battle[k]??v)];
-  const other=1-player,startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],events=[],effects={healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0]};
+  const other=1-player,startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],waiting=state.prediction[other],events=[],effects={healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0]};
   const label=p=>CARD[state.cards[p]].name;let text='',breakdown=null;
   // Each positive damage event consumes existing debt; newly deferred damage waits
   // for another event, including a later burn event in this same action.
@@ -59,6 +79,14 @@ export function resolveCombatAction(battle,player,action){
     }
     const dead=state.hp.map(h=>h===0);
     if(dead.some(Boolean))return outcome(true,dead.every(Boolean)?null:dead[0]?1:0);
+    if(waiting){
+      state.prediction[other]=null;
+      if(waiting!=='hidden'){
+        const correct=waiting===action.type;
+        if(correct)state.foresight[other]=30;
+        events.push(`${label(other)}揭晓预判${waiting==='attack'?'进攻':'撤退'}，对方实际${action.type==='attack'?'进攻':'撤退'}，${correct?'猜中：下次进攻＋30':'未猜中'}`);
+      }
+    }
     return outcome();
   }
   if(action.type==='retreat'){
@@ -66,6 +94,8 @@ export function resolveCombatAction(battle,player,action){
     return state.remaining[player]===0?outcome(true,null):actionEnd();
   }
   const skill=CARD[state.cards[player]].skills[action.skill];let bonus=0;
+  if(state.wind[player]>=0){bonus+=state.wind[player]*25;events.push(`${label(player)}释放逆风蓄势${state.wind[player]}层，伤害＋${state.wind[player]*25}，旧蓄势结束`);state.wind[player]=-1;}
+  if(state.foresight[player]){bonus+=state.foresight[player];events.push(`${label(player)}消耗预判成功增益，伤害＋${state.foresight[player]}`);state.foresight[player]=0;}
   if(skill.effect==='burst'&&state.charge[player]){bonus=skill.amount;state.charge[player]=false;events.push(`${label(player)}的蓄势已消耗，伤害＋${bonus}`);}
   if(skill.effect==='desperate'&&state.hp[player]<=60){bonus=skill.amount-skill.damage;events.push(`${label(player)}的绝境反扑生效，伤害改为${skill.amount}`);}
   if(skill.effect==='echo'){
@@ -100,10 +130,15 @@ export function resolveCombatAction(battle,player,action){
     else if(startSeal)events.push(`${label(player)}已有封伤保护，不叠加、不刷新`);
     else{state.seal[player]=true;events.push(`${label(player)}获得封伤保护：下次直接伤害暂存50%，最多30`);}
   }
+  if(skill.effect==='wind'){state.wind[player]=0;events.push(`${label(player)}进入逆风蓄势0层`);}
+  if(skill.effect==='predict'){
+    if(state.prediction[player])events.push(`${label(player)}保留原秘密预判，不改选、不叠加`);
+    else{state.prediction[player]=action.prediction??'attack';events.push(`${label(player)}封存秘密预判，等待对方下一次行动后揭晓`);}
+  }
   return actionEnd();
 }
 export function previewSkill(battle,player,skillIndex){
-  const other=1-player,skill=CARD[battle.cards[player]].skills[skillIndex],r=resolveCombatAction(battle,player,{type:'attack',skill:skillIndex});
+  const other=1-player,skill=CARD[battle.cards[player]].skills[skillIndex],r=resolveCombatAction(battleForViewer(battle,player),player,{type:'attack',skill:skillIndex});
   const directLethal=r.breakdown.directLethal;
-  return {deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:directLethal&&['heal','delay','charge','shield','burn','mark','weaken','root','seal'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
+  return {deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:directLethal&&['heal','delay','charge','shield','burn','mark','weaken','root','seal','wind','predict'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
 }

@@ -1,6 +1,6 @@
 import { CARD, BEATS, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
 import { hardPointAction, hardBattleAction } from './ai.js';
-import { resolveCombatAction, clearCombatStatuses, combatStatusValue } from './combat.js';
+import { resolveCombatAction, clearCombatStatuses, combatStatusValue, applyRpsLoss, battleForViewer } from './combat.js';
 
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 export const randomInt = (max, rng = Math.random) => Math.min(max - 1, Math.floor(rng() * max));
@@ -90,6 +90,7 @@ function battleAction(m,action) {
   const b=m.battle,p=action.player,other=1-p;
   check(m.phase === 'battle-action' && b.actor === p,'只有猜拳胜者可以行动');
   if(action.type==='attack')check(Number.isInteger(action.skill) && action.skill >= 0 && action.skill < 2,'请选择一个技能');
+  if(action.type==='attack'&&CARD[b.cards[p]].skills[action.skill].effect==='predict'&&!b.prediction?.[p])check(['attack','retreat'].includes(action.prediction),'请先秘密预判进攻或撤退');
   const result=resolveCombatAction(b,p,action);
   m.battle=result.state;
   m.battle.last={player:p,text:result.text,before:{hp:[...b.hp],remaining:[...b.remaining]},after:{hp:[...result.state.hp],remaining:[...result.state.remaining]}};log(m,result.text);
@@ -155,7 +156,10 @@ export function dispatch(match,action,rng=Math.random) {
     m.rps[p]=action.value;
     if (m.rps.every(Boolean)) {
       if (m.rps[0] === m.rps[1]) { m.phase='rps-tie'; log(m,'猜拳平手，双方均不行动，重新猜拳。'); }
-      else { const beats={rock:'scissors',scissors:'paper',paper:'rock'}; m.battle.actor=beats[m.rps[0]] === m.rps[1] ? 0 : 1; m.phase='rps-result'; const hands={rock:'石头',paper:'布',scissors:'剪刀'}; log(m,`${playerName(m,0)}出${hands[m.rps[0]]}，${playerName(m,1)}出${hands[m.rps[1]]}；${playerName(m,m.battle.actor)}获得一次行动权。`); }
+      else { const beats={rock:'scissors',scissors:'paper',paper:'rock'}; m.battle.actor=beats[m.rps[0]] === m.rps[1] ? 0 : 1; m.phase='rps-result'; const hands={rock:'石头',paper:'布',scissors:'剪刀'}; log(m,`${playerName(m,0)}出${hands[m.rps[0]]}，${playerName(m,1)}出${hands[m.rps[1]]}；${playerName(m,m.battle.actor)}获得一次行动权。`);
+        const loser=1-m.battle.actor,before=m.battle.wind?.[loser]??-1;m.battle=applyRpsLoss(m.battle,loser);
+        if(m.battle.wind[loser]>before)log(m,`${CARD[m.battle.cards[loser]].name}猜拳落败，风压积至${m.battle.wind[loser]}层，下次进攻＋${m.battle.wind[loser]*25}`);
+      }
     }
   } else if (['attack','retreat'].includes(action.type)) battleAction(m,action);
   else throw new Error('未知操作');
@@ -169,10 +173,12 @@ export function aiAction(m,p,rng=Math.random) {
   if (m.phase === 'rps') return {type:'rps',player:p,value:['rock','paper','scissors'][randomInt(3,rng)]};
   if (m.phase === 'battle-action') {
     if(m.difficulty==='hard')return hardBattleAction(m,p,rng);
-    const own=CARD[m.battle.cards[p]], other=CARD[m.battle.cards[1-p]], b=m.battle;
-    const projected=own.skills.map((s,skill)=>resolveCombatAction(b,p,{type:'attack',skill}));
+    const own=CARD[m.battle.cards[p]], other=CARD[m.battle.cards[1-p]], b=battleForViewer(m.battle,p);
+    const prediction=b.remaining[1-p]<=1&&b.hp[1-p]<=Math.max(...own.skills.map(s=>s.damage))?'retreat':'attack';
+    const attack=skill=>({type:'attack',player:p,skill,...(own.skills[skill].effect==='predict'&&!b.prediction?.[p]?{prediction}:{})});
+    const projected=own.skills.map((s,skill)=>resolveCombatAction(b,p,attack(skill)));
     const lethal=projected.findIndex(r => r.finished&&r.winner===p);
-    if (lethal >= 0) return {type:'attack',player:p,skill:lethal};
+    if (lethal >= 0) return attack(lethal);
     const retreat=resolveCombatAction(b,p,{type:'retreat'});
     if ((!retreat.finished||retreat.winner!==1-p)&&b.hp[p] <= Math.max(...other.skills.map((s,skill)=>b.hp[p]-resolveCombatAction(b,1-p,{type:'attack',skill}).state.hp[p])) && b.remaining[p] <= 2) return {type:'retreat',player:p};
     const survives=projected.some(r=>!r.finished||r.winner===p);
@@ -182,7 +188,7 @@ export function aiAction(m,p,rng=Math.random) {
       const score=r.finished&&r.winner===1-p?-10000:b.hp[1-p]-next.hp[1-p]+next.hp[p]-b.hp[p]+combatStatusValue(next,p)-combatStatusValue(b,p)+(s.effect==='delay'&&b.remaining[1-p]<=2?16:0)-(next.remaining[p]-b.remaining[p])*2;
       if(score>best){best=score;skill=i;}
     });
-    return {type:'attack',player:p,skill};
+    return attack(skill);
   }
   return null;
 }

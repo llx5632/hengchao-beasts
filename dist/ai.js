@@ -1,5 +1,5 @@
 import { CARD, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
-import { resolveCombatAction, combatStatusKey, combatStatusValue } from './combat.js';
+import { resolveCombatAction, combatStatusKey, combatStatusValue, applyRpsLoss, battleActions } from './combat.js';
 
 export const DIFFICULTIES=Object.freeze({
   easy:{label:'简单',description:'随机选卡、选点和猜拳，使用基础行动判断。'},
@@ -41,7 +41,9 @@ export function hardPointAction(match,player,rng=Math.random) {
 
 export function hardBattleAction(match,player,rng=Math.random) {
   const other=1-player, memo=new Map();
-  const actions=[{type:'attack',skill:0},{type:'attack',skill:1},{type:'retreat'}];
+  const actions=battleActions(match.battle,player);
+  // Evaluate both possible private choices with equal prior; never inspect the real choice.
+  const beliefs=match.battle.prediction?.[other]?['attack','retreat'].map(choice=>({...match.battle,prediction:match.battle.prediction.map((v,p)=>p===other?choice:v)})):[match.battle];
   const damage=match.battle.cards.map(id=>Math.max(...CARD[id].skills.map(s=>s.damage)));
   const heuristic=state=>1/(1+Math.exp(-.8*(state.hp[player]/damage[other]-state.hp[other]/damage[player]+combatStatusValue(state,player)/Math.max(...damage))));
   function afterAction(state,actor,action,depth) {
@@ -52,20 +54,21 @@ export function hardBattleAction(match,player,rng=Math.random) {
   function nextTurn(state,depth) {
     const key=`${depth}:${state.hp.join(',')}:${state.remaining.join(',')}:${combatStatusKey(state)}`;
     if(memo.has(key))return memo.get(key);
-    const mine=Math.max(...actions.map(a=>afterAction(state,player,a,depth)));
-    const theirs=Math.min(...actions.map(a=>afterAction(state,other,a,depth)));
+    const mineState=applyRpsLoss(state,other),theirState=applyRpsLoss(state,player);
+    const mine=Math.max(...battleActions(mineState,player).map(a=>afterAction(mineState,player,a,depth)));
+    const theirs=Math.min(...battleActions(theirState,other).map(a=>afterAction(theirState,other,a,depth)));
     // Ties replay: either side has equal chance of the next action.
     const value=(mine+theirs)/2;
     memo.set(key,value);
     return value;
   }
-  const values=actions.map(a=>afterAction(match.battle,player,a,4));
+  const values=actions.map(a=>beliefs.reduce((sum,state)=>sum+afterAction(state,player,a,4),0)/beliefs.length);
   const best=Math.max(...values);
   const candidates=actions.filter((_,i)=>Math.abs(values[i]-best)<1e-9);
   const gain=action=>{
     if(action.type==='retreat')return .1;
-    const next=resolveCombatAction(match.battle,player,action).state;
-    return match.battle.hp[other]-next.hp[other]+next.hp[player]-match.battle.hp[player]+5*(next.remaining[other]-match.battle.remaining[other])+combatStatusValue(next,player)-combatStatusValue(match.battle,player)-2*(next.remaining[player]-match.battle.remaining[player]);
+    return beliefs.reduce((sum,state)=>{const next=resolveCombatAction(state,player,action).state;
+      return sum+state.hp[other]-next.hp[other]+next.hp[player]-state.hp[player]+5*(next.remaining[other]-state.remaining[other])+combatStatusValue(next,player)-combatStatusValue(state,player)-2*(next.remaining[player]-state.remaining[player]);},0)/beliefs.length;
   };
   const bestGain=Math.max(...candidates.map(gain));
   return {...randomItem(candidates.filter(a=>Math.abs(gain(a)-bestGain)<1e-9),rng),player};

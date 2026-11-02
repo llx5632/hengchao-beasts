@@ -4,7 +4,7 @@ import { SAVE_KEY, freshSession, createLocalMatch, upgradeSession } from './sess
 import { DIFFICULTIES, normalizeDifficulty } from './ai.js';
 import { scheduledStep } from './flow.js';
 import { SELECTION_SORTS, selectionCards, selectionSummary } from './selection.js';
-import { previewSkill, battleEndedBySurrender, combatStatuses, resolveCombatAction } from './combat.js';
+import { previewSkill, battleEndedBySurrender, combatStatuses, resolveCombatAction, battleForViewer } from './combat.js';
 import { selectionDraft, normalizePresets, createPreset, resolvePreset, canLeaveSelection } from './roster.js';
 import { newTutorial, normalizeTutorial, beginTutorialLesson, tutorialAction } from './tutorial.js';
 import { renderTutorial } from './tutorial-ui.js';
@@ -181,6 +181,11 @@ function battleStatusView(b,p){
 }
 function skillButton(battle,p,skill,index){
   const actual=previewSkill(battle,p,index),b=actual.breakdown,notes=[];
+  if((battle.wind?.[p]??-1)>=0)notes.push(`本次消耗逆风蓄势${battle.wind[p]}层，伤害＋${battle.wind[p]*25}；0层也结束旧蓄势。`);
+  if(battle.foresight?.[p])notes.push('本次消耗预判成功增益，伤害＋30。');
+  if(skill.effect==='wind'&&!actual.effectSkipped)notes.push('进攻后重新进入逆风蓄势0层；每次猜拳落败积1层，最多2层。');
+  if(skill.effect==='predict'&&!actual.effectSkipped)notes.push(battle.prediction?.[p]?'保留已封存预判，不改选、不叠加。':'点击后秘密选择预判进攻或撤退，与本次技能一并封存。');
+  if(battle.prediction?.[1-p])notes.push('对方的秘密预判将在本次行动结束后揭晓。');
   if(actual.effectSkipped)notes.push('伤害致胜后立即结算，附加效果不再触发。');
   else if(actual.lethal)notes.push('本次可击败对方，结束对局。');
   if(actual.selfDefeat)notes.push('警告：行动后持续伤害会使自己HP归零，判负失卡。');
@@ -212,10 +217,10 @@ function skillButton(battle,p,skill,index){
   return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='heal'||actual.burnDamage[p]?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
 }
 function retreatButton(b,p){
-  const r=resolveCombatAction(b,p,{type:'retreat'}),burn=r.effects.burnDamage;
+  const r=resolveCombatAction(battleForViewer(b,p),p,{type:'retreat'}),burn=r.effects.burnDamage;
   const oldWound=r.effects.settled[p]?` · 再次受伤追加旧伤${r.effects.settled[p]}`:'';
   const note=r.finished?(r.winner===null?' · 本次平局':r.winner===p?' · 持续伤害使对方归零，本次获胜':' · 警告：行动后持续伤害会使自己归零判负'):burn.some(Boolean)?` · 烙印：${burn.map((n,q)=>n?`${name(q)}－${n}HP`:'').filter(Boolean).join('，')}`:'';
-  return btn(`选择撤退 · ${b.remaining[p]} → ${r.state.remaining[p]}${note}${oldWound}`,'retreat','ghost');
+  return btn(`选择撤退 · ${b.remaining[p]} → ${r.state.remaining[p]}${note}${oldWound}${b.prediction?.[1-p]?' · 行动后揭晓对方预判':''}`,'retreat','ghost');
 }
 function privateTurn(m,p){
   if(m.phase==='select'){
@@ -343,7 +348,7 @@ document.addEventListener('click',event=>{
     if(a.startsWith('tutorial-'))sendTutorial(action);
     return;
   }
-  if(a==='battle-status'){const status=combatStatuses(m.battle,Number(target.dataset.player)).find(s=>s.id===target.dataset.kind);if(status)modal(status.label,`<p>${esc(status.detail)}</p>`);return;}
+  if(a==='battle-status'){const status=combatStatuses(m.battle,Number(target.dataset.player),0).find(s=>s.id===target.dataset.kind);if(status)modal(status.label,`<p>${esc(status.detail)}</p>`);return;}
   if(a==='battle-layout'){store.battleCompact=!store.battleCompact;save();render();document.querySelector('.battle-match')?.scrollIntoView({block:'start'});return;}
   if(a==='save-preset'){
     if(m?.phase!=='select'||m.selections[0]!==null)return;
@@ -397,7 +402,17 @@ document.addEventListener('click',event=>{
   if(a==='decision')return send({type:'decision',player:p,value:target.dataset.value});
   if(a==='point'||a==='random-point')return send({type:'point',player:p,value:a==='point'?Number(target.dataset.value):POINT_NUMBERS[randomInt(POINT_NUMBERS.length)]});
   if(a==='rps')return send({type:'rps',player:p,value:target.dataset.value});
-  if(a==='attack')return send({type:'attack',player:p,skill:Number(target.dataset.skill)});
+  if(a==='attack'){
+    const skill=Number(target.dataset.skill);
+    if(CARD[m.battle.cards[p]].skills[skill].effect==='predict'&&!m.battle.prediction?.[p]){
+      modal('秘密预判对方的下一次行动',`<p>选择进攻或撤退，与本次伏路预判一并封存。对手行动结束后才揭晓；猜中且战斗继续，下次进攻＋30。</p><div class="toolbar">${btn('预判进攻并施放','prediction-attack','',`data-skill="${skill}"`)}${btn('预判撤退并施放','prediction-retreat','ghost',`data-skill="${skill}"`)}</div>`);return;
+    }
+    return send({type:'attack',player:p,skill});
+  }
+  if(a==='prediction-attack'||a==='prediction-retreat'){
+    document.querySelector('#dialog').close();
+    return send({type:'attack',player:p,skill:Number(target.dataset.skill),prediction:a==='prediction-attack'?'attack':'retreat'});
+  }
   if(a==='retreat')return send({type:'retreat',player:p});
   if(a==='advance')return send({type:'advance'});
   if(a==='battle-surrender'){
