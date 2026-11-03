@@ -10,6 +10,7 @@ export function freshSession() {
     version: 2,
     rulesRevision: RULES_REVISION,
     specialCardsGranted: true,
+    twinCardsGranted: true,
     difficulty: 'easy',
     autoAdvance: true,
     battleCompact: true,
@@ -34,6 +35,15 @@ export function upgradeSession(session) {
       }
     });
     session.specialCardsGranted=true;changed=true;
+  }
+  if(!session.twinCardsGranted){
+    const existing=new Set(session.players.flatMap(p=>p.cards.map(c=>c.id)));
+    session.players.forEach((p,player)=>{for(const cardId of ['zhoulan','yelan']){
+      const id=`release-twins-${player}-${cardId}`;if(existing.has(id))continue;
+      const card={id,cardId};p.cards.push(card);existing.add(id);
+      if(session.match?.status==='active')session.match.inventories[player].push({...card});
+    }});
+    session.twinCardsGranted=true;changed=true;
   }
   if(session.rulesRevision!==RULES_REVISION){
     if(session.match){session.match=null;session.releaseNotice='技能规则已更新，旧对局已清理；收藏及已结算的赢失卡结果保留。';}

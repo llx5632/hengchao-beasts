@@ -1,6 +1,6 @@
-import { CARD, BEATS, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
+import { CARD, TWIN_PARTNERS, BEATS, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
 import { hardPointAction, hardBattleAction } from './ai.js';
-import { resolveCombatAction, clearCombatStatuses, combatStatusValue, applyRpsLoss, battleForViewer } from './combat.js';
+import { resolveCombatAction, clearCombatStatuses, combatStatusValue, applyRpsLoss, battleForViewer, skillAvailable, battleActions, twinDamageMultiplier } from './combat.js';
 
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 export const randomInt = (max, rng = Math.random) => Math.min(max - 1, Math.floor(rng() * max));
@@ -38,10 +38,11 @@ function transfer(m,from,id,reason) {
   m.inventories[1-from].push(instance);
   m.transfers.push({from,to:1-from,id,cardId:instance.cardId,reason});
 }
+function activeBattleInstance(m,p){return m.battle.instances?.[p]??m.hands[p][0];}
 function startBattle(m) {
   m.hands=m.selections.map(ids => ids.map(id => m.inventories.flat().find(c => c.id === id)));
   const cards=m.hands.map(h => CARD[h[0].cardId]);
-  m.battle={cards:cards.map(c => c.id),hp:cards.map(c => c.hp),remaining:cards.map(c => c.retreat),actor:null,last:null,charge:[false,false],shield:[0,0],echo:[0,0]};
+  m.battle={instances:m.hands.map(h=>({...h[0]})),twinPairs:structuredClone(m.twinBindings??[null,null]),cards:cards.map(c => c.id),hp:cards.map(c => c.hp),remaining:cards.map(c => c.retreat),actor:null,last:null,charge:[false,false],shield:[0,0],echo:[0,0]};
   clearCombatStatuses(m.battle);
   for (const p of [0,1]) if (BEATS[cards[p].element] === cards[1-p].element) {
     transfer(m,1-p,m.hands[1-p][0].id,'属性克制');
@@ -91,12 +92,16 @@ function battleAction(m,action) {
   check(m.phase === 'battle-action' && b.actor === p,'只有猜拳胜者可以行动');
   if(action.type==='attack')check(Number.isInteger(action.skill) && action.skill >= 0 && action.skill < 2,'请选择一个技能');
   if(action.type==='attack'&&CARD[b.cards[p]].skills[action.skill].effect==='predict'&&!b.prediction?.[p])check(['attack','retreat'].includes(action.prediction),'请先秘密预判进攻或撤退');
+  if(action.type==='attack'){
+    check(skillAvailable(b,p,action.skill),'缺少已绑定的双生伙伴，无法使用双生相转');
+    if(CARD[b.cards[p]].skills[action.skill].effect==='twin-shift')for(const instance of Object.values(b.twinPairs[p]))check(m.inventories[p].some(c=>c.id===instance.id&&c.cardId===instance.cardId),'绑定的双生卡牌不在自己的收藏中');
+  }
   const result=resolveCombatAction(b,p,action);
   m.battle=result.state;
   m.battle.last={player:p,text:result.text,before:{hp:[...b.hp],remaining:[...b.remaining]},after:{hp:[...result.state.hp],remaining:[...result.state.remaining]}};log(m,result.text);
   if(!result.finished)m.phase='battle-turn';
   else if(result.winner===null)finish(m,null,action.type==='retreat'&&result.state.remaining[p]===0?'撤退成功，平局，双方保留卡牌':'双方持续伤害同时归零，平局，双方保留卡牌');
-  else {const winner=result.winner,loser=1-winner;transfer(m,loser,m.hands[loser][0].id,'战斗获胜');finish(m,winner,result.effects.burnDamage.some(Boolean)?'持续伤害结算后HP归零，战斗结束':'对方剩余 HP 为 0，战斗获胜');}
+  else {const winner=result.winner,loser=1-winner;transfer(m,loser,activeBattleInstance(m,loser).id,'战斗获胜');finish(m,winner,result.effects.burnDamage.some(Boolean)?'持续伤害结算后HP归零，战斗结束':'对方剩余 HP 为 0，战斗获胜');}
 }
 
 export function dispatch(match,action,rng=Math.random) {
@@ -118,7 +123,7 @@ export function dispatch(match,action,rng=Math.random) {
   if (action.type === 'surrender') {
     check(m.mode === 'battle' && m.battle,'战斗亮牌后方可主动投降');
     m.battle.last=null;m.battle.actor=null;m.rps=[null,null];
-    transfer(m,p,m.hands[p][0].id,'战斗投降'); finish(m,1-p,`${playerName(m,p)} 主动投降，失去当前出战卡`); return m;
+    transfer(m,p,activeBattleInstance(m,p).id,'战斗投降'); finish(m,1-p,`${playerName(m,p)} 主动投降，失去当前出战卡`); return m;
   }
   check(expectedPlayers(m).includes(p),'这位玩家当前不能提交或已经提交');
   if (action.type === 'select') {
@@ -127,6 +132,12 @@ export function dispatch(match,action,rng=Math.random) {
     check(Array.isArray(action.ids) && action.ids.length === count && new Set(action.ids).size === count,`请选择 ${count} 张不同的实际卡牌`);
     check(action.ids.every(id => m.inventories[p].some(c => c.id === id)),'只能使用自己实际持有的卡牌');
     m.selections[p]=[...action.ids];
+    if(m.mode==='battle'){
+      const selected=m.inventories[p].find(c=>c.id===action.ids[0]),partnerId=TWIN_PARTNERS[selected.cardId];
+      const partner=partnerId?m.inventories[p].filter(c=>c.cardId===partnerId).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0)[0]:null;
+      m.twinBindings??=[null,null];
+      m.twinBindings[p]=partner?{[selected.cardId]:{...selected},[partnerId]:{...partner}}:null;
+    }
     if (m.selections.every(Boolean)) {
       if (m.mode === 'battle') startBattle(m);
       else {
@@ -176,16 +187,16 @@ export function aiAction(m,p,rng=Math.random) {
     const own=CARD[m.battle.cards[p]], other=CARD[m.battle.cards[1-p]], b=battleForViewer(m.battle,p);
     const prediction=b.remaining[1-p]<=1&&b.hp[1-p]<=Math.max(...own.skills.map(s=>s.damage))?'retreat':'attack';
     const attack=skill=>({type:'attack',player:p,skill,...(own.skills[skill].effect==='predict'&&!b.prediction?.[p]?{prediction}:{})});
-    const projected=own.skills.map((s,skill)=>resolveCombatAction(b,p,attack(skill)));
-    const lethal=projected.findIndex(r => r.finished&&r.winner===p);
+    const projected=own.skills.map((s,skill)=>skillAvailable(b,p,skill)?resolveCombatAction(b,p,attack(skill)):null);
+    const lethal=projected.findIndex(r => r?.finished&&r.winner===p);
     if (lethal >= 0) return attack(lethal);
     const retreat=resolveCombatAction(b,p,{type:'retreat'});
-    if ((!retreat.finished||retreat.winner!==1-p)&&b.hp[p] <= Math.max(...other.skills.map((s,skill)=>b.hp[p]-resolveCombatAction(b,1-p,{type:'attack',skill}).state.hp[p])) && b.remaining[p] <= 2) return {type:'retreat',player:p};
-    const survives=projected.some(r=>!r.finished||r.winner===p);
+    if ((!retreat.finished||retreat.winner!==1-p)&&b.hp[p] <= Math.max(...battleActions(b,1-p).filter(a=>a.type==='attack').map(a=>b.hp[p]-resolveCombatAction(b,1-p,a).state.hp[p])) && b.remaining[p] <= 2) return {type:'retreat',player:p};
+    const survives=projected.some(r=>r&&(!r.finished||r.winner===p));
     if(!survives&&(!retreat.finished||retreat.winner===null))return {type:'retreat',player:p};
     let skill=0,best=-Infinity;
-    own.skills.forEach((s,i)=>{const r=projected[i],next=r.state;
-      const score=r.finished&&r.winner===1-p?-10000:b.hp[1-p]-next.hp[1-p]+next.hp[p]-b.hp[p]+combatStatusValue(next,p)-combatStatusValue(b,p)+(s.effect==='delay'&&b.remaining[1-p]<=2?16:0)-(next.remaining[p]-b.remaining[p])*2;
+    own.skills.forEach((s,i)=>{const r=projected[i];if(!r)return;const next=r.state;
+      const score=r.finished&&r.winner===1-p?-10000:b.hp[1-p]-next.hp[1-p]+next.hp[p]-b.hp[p]+combatStatusValue(next,p)-combatStatusValue(b,p)+(s.effect==='twin-shift'?(twinDamageMultiplier(CARD[next.cards[p]].skills[0],other.element)-twinDamageMultiplier(own.skills[0],other.element))*own.skills[0].damage:0)+(s.effect==='delay'&&b.remaining[1-p]<=2?16:0)-(next.remaining[p]-b.remaining[p])*2;
       if(score>best){best=score;skill=i;}
     });
     return attack(skill);

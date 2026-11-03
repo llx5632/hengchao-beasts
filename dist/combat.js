@@ -1,4 +1,4 @@
-import { CARD } from './data.js';
+import { CARD, TWIN_PARTNERS } from './data.js';
 export function battleEndedBySurrender(m){return Boolean(m.mode==='battle'&&m.status==='finished'&&m.transfers?.some(t=>t.reason==='战斗投降'));}
 const empty=()=>({charge:[false,false],shield:[0,0],echo:[0,0],burn:[0,0],mark:[null,null],weaken:[0,0],root:[0,0],seal:[false,false],debt:[0,0],wind:[-1,-1],prediction:[null,null],foresight:[0,0]});
 // One invocation per resolved, non-tied RPS. Preview/AI use the same transition.
@@ -13,17 +13,28 @@ export function battleForViewer(battle,viewer){
   if(prediction[1-viewer])prediction[1-viewer]='hidden';
   return {...battle,prediction};
 }
+export function canTwinShift(battle,player){
+  const partner=TWIN_PARTNERS[battle.cards[player]], pair=battle.twinPairs?.[player];
+  return Boolean(partner&&pair?.[partner]?.cardId===partner&&pair?.[battle.cards[player]]?.cardId===battle.cards[player]);
+}
+export function skillAvailable(battle,player,skill){return CARD[battle.cards[player]].skills[skill]?.effect!=='twin-shift'||canTwinShift(battle,player);}
+export function twinDamageMultiplier(skill,element){
+  if(skill.effect==='twin-day')return element==='草'?2:element==='火'?.5:1;
+  if(skill.effect==='twin-night')return element==='火'?2:element==='草'?.5:1;
+  return 1;
+}
 export function battleActions(battle,player){
-  return CARD[battle.cards[player]].skills.flatMap((s,skill)=>s.effect==='predict'&&!battle.prediction?.[player]?[{type:'attack',skill,prediction:'attack'},{type:'attack',skill,prediction:'retreat'}]:[{type:'attack',skill}]).concat({type:'retreat'});
+  return CARD[battle.cards[player]].skills.flatMap((s,skill)=>!skillAvailable(battle,player,skill)?[]:s.effect==='predict'&&!battle.prediction?.[player]?[{type:'attack',skill,prediction:'attack'},{type:'attack',skill,prediction:'retreat'}]:[{type:'attack',skill}]).concat({type:'retreat'});
 }
 export function clearCombatStatuses(s){Object.assign(s,empty());}
-export function combatStatusKey(s){return JSON.stringify(Object.entries(empty()).map(([k,v])=>s[k]??v));}
+export function combatStatusKey(s){return JSON.stringify([s.cards,s.twinPairs??null,...Object.entries(empty()).map(([k,v])=>s[k]??v)]);}
 export function combatStatusValue(s,p){
   const v=i=>(s.charge?.[i]?20:0)+(s.shield?.[i]??0)*.7+Math.min(30,Math.floor((s.echo?.[i]??0)/2))*.6+(s.root?.[i]??0)*14+(s.seal?.[i]?15:0)-(s.debt?.[i]??0)-(s.burn?.[i]??0)*10-(s.weaken?.[i]??0)*6-(s.mark?.[i]===1-i?18:0)+((s.wind?.[i]??-1)<0?0:[18.75,37.5,50][s.wind[i]])+(s.prediction?.[i]?23:0)+(s.foresight?.[i]??0);
   return v(p)-v(1-p);
 }
 export function combatStatuses(s,p,viewer=0){
   const c=CARD[s.cards[p]],out=[],other=1-p,add=(id,label,active,detail)=>out.push({id,label,active,detail});
+  if(TWIN_PARTNERS[c.id]){const partner=CARD[TWIN_PARTNERS[c.id]],ready=canTwinShift(s,p);add('twin',ready?`双生：可转为${partner.name}`:`双生：缺少${partner.name}`,ready,`伙伴：${partner.name}。${ready?'已绑定实际伙伴谱印；使用双生相转先造成10基础伤害，未直接致胜则转换，占一次进攻。':'未绑定伙伴，双生相转不可用。'}转换保留HP、伤势、剩余撤退、全部状态及来源计数；战败或投降只失去当前形态对应的实际卡牌。双方同次持续伤害归零仍平局保卡。`);}
   if(c.id==='xuanjiao')add('wind',(s.wind?.[p]??-1)<0?'逆风：未蓄势':s.wind[p]===0?'逆风蓄势0层':`风压${s.wind[p]}层 · 下次进攻＋${s.wind[p]*25}`,(s.wind?.[p]??-1)>=0,'来源：逆风蓄势。进入0层后每次猜拳落败积1层，每层＋25，最多2层。平手不积层；下一次任一技能进攻消耗整个蓄势，包括0层。再次使用逆风蓄势先释放旧层，再重新进入0层。未成功撤退保留，结束清空。');
   if(c.id==='chaojing'){
     const pending=s.prediction?.[p],choice=p===viewer&&pending&&pending!=='hidden'?(pending==='attack'?'进攻':'撤退'):null;
@@ -42,7 +53,8 @@ export function combatStatuses(s,p,viewer=0){
 }
 // Preview, real play and AI share an immutable resolver.
 export function resolveCombatAction(battle,player,action){
-  const state={...battle,hp:[...battle.hp],remaining:[...battle.remaining]};
+  const state={...battle,cards:[...battle.cards],hp:[...battle.hp],remaining:[...battle.remaining],...(battle.instances?{instances:[...battle.instances]}:{})};
+  if(action.type==='attack'&&!skillAvailable(battle,player,action.skill))throw new Error('缺少已绑定的双生伙伴，无法使用双生相转');
   for(const [k,v] of Object.entries(empty()))state[k]=[...(battle[k]??v)];
   const other=1-player,startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],waiting=state.prediction[other],events=[],effects={healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0]};
   const label=p=>CARD[state.cards[p]].name;let text='',breakdown=null;
@@ -105,14 +117,22 @@ export function resolveCombatAction(battle,player,action){
   }
   if(skill.effect==='bite'&&state.mark[other]===player){bonus=skill.amount;state.mark[other]=null;events.push(`${label(other)}的晶痕已消耗，猛咬伤害＋${bonus}`);}
   if(skill.effect==='root-strike'&&state.root[player]){bonus=skill.amount;state.root[player]--;events.push(`${label(player)}消耗1次根劲，伤害＋${bonus}，剩余${state.root[player]}次`);}
-  const raw=skill.damage+bonus,multiplier=state.weaken[player]?0.75:1,afterReduction=Math.floor(raw*multiplier);
+  const raw=skill.damage+bonus,elementMultiplier=twinDamageMultiplier(skill,CARD[state.cards[other]].element),multiplier=state.weaken[player]?0.75:1,afterReduction=Math.floor(raw*elementMultiplier*multiplier);
+  if(elementMultiplier!==1)events.push(`双生属性倍率×${elementMultiplier}`);
   if(state.weaken[player]){state.weaken[player]--;events.push(`${label(player)}进攻被削弱25%，${raw}→${afterReduction}，剩余${state.weaken[player]}次`);}
   const blocked=Math.min(afterReduction,state.shield[other]);
   if(state.shield[other]){state.shield[other]=0;events.push(`${label(other)}的护盾抵消${blocked}伤害，已消耗`);}
   const damage=receiveDamage(other,Math.max(0,afterReduction-blocked),true);
-  breakdown={base:skill.damage,bonus,raw,multiplier,afterReduction,blocked,damage,directLethal:state.hp[other]===0};text=`${skill.name}造成 ${damage} 伤害（直接）`;
+  breakdown={base:skill.damage,bonus,raw,elementMultiplier,multiplier,afterReduction,blocked,damage,directLethal:state.hp[other]===0};text=`${skill.name}造成 ${damage} 伤害（直接）`;
   if(state.hp[other]===0)return outcome(true,player);
   if(CARD[state.cards[other]].id==='mingnang'&&damage>0){const old=state.echo[other];state.echo[other]=damage;events.push(`${label(other)}回响记录${old?'由'+old+'更新为':'为'}${damage}`);}
+  if(skill.effect==='twin-shift'){
+    const old=CARD[state.cards[player]].name,partner=TWIN_PARTNERS[state.cards[player]];
+    state.cards[player]=partner;
+    state.instances=[...(state.instances??[null,null])];state.instances[player]=state.twinPairs[player][partner];
+    effects.transformed={player,from:battle.cards[player],to:partner,instanceId:state.instances[player].id};
+    events.push(`${old}转换为${CARD[partner].name}，继承全部战斗状态；战败将失去${CARD[partner].name}`);
+  }
   if(skill.effect==='heal'){effects.healing=Math.min(skill.amount,CARD[state.cards[player]].hp-state.hp[player]);state.hp[player]+=effects.healing;text+=`，自己恢复 ${effects.healing} HP`;}
   if(skill.effect==='delay'){effects.delay=Math.max(0,Math.min(skill.amount,CARD[state.cards[other]].retreat+2-state.remaining[other]));state.remaining[other]+=effects.delay;text+=`，对方剩余撤退 +${effects.delay}`;}
   if(skill.effect==='charge'){events.push(state.charge[player]?`${label(player)}已蓄势，不叠加`:`${label(player)}获得蓄势：裂风突袭＋${skill.amount}`);state.charge[player]=true;}
@@ -140,5 +160,5 @@ export function resolveCombatAction(battle,player,action){
 export function previewSkill(battle,player,skillIndex){
   const other=1-player,skill=CARD[battle.cards[player]].skills[skillIndex],r=resolveCombatAction(battleForViewer(battle,player),player,{type:'attack',skill:skillIndex});
   const directLethal=r.breakdown.directLethal;
-  return {deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:directLethal&&['heal','delay','charge','shield','burn','mark','weaken','root','seal','wind','predict'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
+  return {transformed:r.effects.transformed??null,deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:directLethal&&['heal','delay','charge','shield','burn','mark','weaken','root','seal','wind','predict','twin-shift'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
 }

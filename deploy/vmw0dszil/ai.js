@@ -1,5 +1,5 @@
 import { CARD, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
-import { resolveCombatAction, combatStatusKey, combatStatusValue, applyRpsLoss, battleActions } from './combat.js';
+import { resolveCombatAction, combatStatusKey, combatStatusValue, applyRpsLoss, battleActions, twinDamageMultiplier } from './combat.js';
 
 export const DIFFICULTIES=Object.freeze({
   easy:{label:'简单',description:'随机选卡、选点和猜拳，使用基础行动判断。'},
@@ -44,8 +44,10 @@ export function hardBattleAction(match,player,rng=Math.random) {
   const actions=battleActions(match.battle,player);
   // Evaluate both possible private choices with equal prior; never inspect the real choice.
   const beliefs=match.battle.prediction?.[other]?['attack','retreat'].map(choice=>({...match.battle,prediction:match.battle.prediction.map((v,p)=>p===other?choice:v)})):[match.battle];
-  const damage=match.battle.cards.map(id=>Math.max(...CARD[id].skills.map(s=>s.damage)));
-  const heuristic=state=>1/(1+Math.exp(-.8*(state.hp[player]/damage[other]-state.hp[other]/damage[player]+combatStatusValue(state,player)/Math.max(...damage))));
+  const heuristic=state=>{
+    const damage=state.cards.map((id,p)=>Math.max(...CARD[id].skills.map(s=>s.damage*twinDamageMultiplier(s,CARD[state.cards[1-p]].element))));
+    return 1/(1+Math.exp(-.8*(state.hp[player]/damage[other]-state.hp[other]/damage[player]+combatStatusValue(state,player)/Math.max(...damage))));
+  };
   function afterAction(state,actor,action,depth) {
     const result=resolveCombatAction(state,actor,action);
     if(result.finished)return result.winner===null ? 0.5 : result.winner===player ? 1 : 0;

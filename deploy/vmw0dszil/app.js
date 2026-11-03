@@ -1,10 +1,10 @@
-import { CARDS, CARD, BEATS, ELEMENTS, METRICS, POINT_NUMBERS, pointMetricIndex, skillText } from './data.js';
+import { CARDS, CARD, TWIN_PARTNERS, BEATS, ELEMENTS, METRICS, POINT_NUMBERS, pointMetricIndex, skillText } from './data.js';
 import { dispatch, expectedPlayers, aiAction, randomInt } from './engine.js';
 import { SAVE_KEY, freshSession, createLocalMatch, upgradeSession } from './session.js';
 import { DIFFICULTIES, normalizeDifficulty } from './ai.js';
 import { scheduledStep } from './flow.js';
 import { SELECTION_SORTS, selectionCards, selectionSummary } from './selection.js';
-import { previewSkill, battleEndedBySurrender, combatStatuses, resolveCombatAction, battleForViewer } from './combat.js';
+import { previewSkill, battleEndedBySurrender, combatStatuses, resolveCombatAction, battleForViewer, skillAvailable } from './combat.js';
 import { selectionDraft, normalizePresets, createPreset, resolvePreset, canLeaveSelection } from './roster.js';
 import { newTutorial, normalizeTutorial, beginTutorialLesson, tutorialAction } from './tutorial.js';
 import { renderTutorial } from './tutorial-ui.js';
@@ -163,7 +163,7 @@ function actionFeedback(m){
   const changes=last.before&&last.after?[0,1].flatMap(p=>['hp','remaining'].flatMap(field=>{const before=last.before[field][p],after=last.after[field][p];if(before===after)return [];return [`<div><span>${name(p)} · ${field==='hp'?'剩余 HP':'剩余撤退'}</span><strong>${before} → ${after} ${stateChange(last,field,p)}</strong></div>`];})).join(''):'';
   return `<div class="action-feedback" role="status"><strong>${name(last.player)} · ${esc(last.text)}</strong>${changes?`<div class="change-list">${changes}</div>`:''}</div>`;
 }
-function selectionPreview(m,p){const c=CARD[previewCardId]&&m.inventories[p].some(i=>i.cardId===previewCardId)?CARD[previewCardId]:CARD[m.inventories[p][0].cardId];return `<aside class="selection-preview" aria-label="选卡预览"><div class="eyebrow">出战前预览</div><div class="preview-overview">${playedCard(c)}<div><h3>${c.name}</h3><p>${c.tier} · ${c.element}属性 · 克制${BEATS[c.element]}<br>基础 HP <b>${c.hp}</b><br>基础撤退 <b>${c.retreat}</b><br>${c.height}m / ${c.weight}kg</p></div></div><div class="reading-skills">${c.skills.map(s=>`<div><strong>${s.name}</strong><p>${skillText(s)}</p></div>`).join('')}</div><p class="preview-story">${c.story}</p><small class="subtle">点击卡面可放大；预览不会提交出战卡。</small></aside>`;}
+function selectionPreview(m,p){const c=CARD[previewCardId]&&m.inventories[p].some(i=>i.cardId===previewCardId)?CARD[previewCardId]:CARD[m.inventories[p][0].cardId];return `<aside class="selection-preview" aria-label="选卡预览"><div class="eyebrow">出战前预览</div><div class="preview-overview">${playedCard(c)}<div><h3>${c.name}</h3><p>${c.tier} · ${c.element}属性 · 克制${BEATS[c.element]}<br>基础 HP <b>${c.hp}</b><br>基础撤退 <b>${c.retreat}</b><br>${c.height}m / ${c.weight}kg</p></div></div><div class="reading-skills">${c.skills.map(s=>`<div><strong>${s.name}</strong><p>${skillText(s)}</p></div>`).join('')}</div><p class="preview-story">${c.story}</p>${m.mode==='battle'&&TWIN_PARTNERS[c.id]?`<p class="skill-notice">${m.inventories[p].some(i=>i.cardId===TWIN_PARTNERS[c.id])?`已持有${CARD[TWIN_PARTNERS[c.id]].name}，封存时绑定一张伙伴谱印；相转继承伤势，战败只失去当前形态。`:`缺少${CARD[TWIN_PARTNERS[c.id]].name}，本场双生相转不可用。`}</p>`:''}<small class="subtle">点击卡面可放大；预览不会提交出战卡。</small></aside>`;}
 function selectionTools(m,p,visible){
   const hidden=draft.filter(id=>!visible.some(i=>i.id===id)).length;
   return `<section class="selection-tools" aria-label="选卡筛选与排序"><div class="toolbar">${['全部',...ELEMENTS].map(e=>btn(e==='全部'?'全部属性':e,'selection-element',`ghost small ${selectionElement===e?'active':''}`,`data-value="${e}" aria-label="${e==='全部'?'全部属性':`筛选${e}属性`}" aria-pressed="${selectionElement===e}"`)).join('')}</div><div class="selection-sort-row"><label for="selection-sort">排序<select id="selection-sort" data-action="selection-sort">${SELECTION_SORTS.map(o=>`<option value="${o.id}" ${selectionSort===o.id?'selected':''}>${o.label}</option>`).join('')}</select></label>${btn(selectionAscending?'从小到大 ↑':'从大到小 ↓','selection-direction','ghost small',selectionSort==='default'?'disabled':'')}<label class="selection-check"><input type="checkbox" data-action="selection-only" ${selectedOnly?'checked':''}>只看已选</label>${btn('清除筛选','selection-clear','ghost small')}</div><p>显示 ${visible.length} / ${m.inventories[p].length} 张${hidden?` · 已选的 ${hidden} 张被筛选隐藏，仍保留在阵容中`:''}</p></section>`;
@@ -180,12 +180,14 @@ function battleStatusView(b,p){
   return `<div class="combat-statuses" aria-label="${name(p)}的技能状态">${combatStatuses(b,p).map(s=>`<button class="combat-status ${s.active?'status-active':''}" data-action="battle-status" data-player="${p}" data-kind="${s.id}" aria-label="查看${name(p)}的${s.label}">${s.label}<span aria-hidden="true"> ⓘ</span></button>`).join('')}</div>`;
 }
 function skillButton(battle,p,skill,index){
+  if(!skillAvailable(battle,p,index))return `<button class="skill-button" disabled aria-label="双生相转不可用：缺少伙伴"><em>—</em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-notice">缺少已绑定的${CARD[TWIN_PARTNERS[battle.cards[p]]].name}，无法转换。</span></button>`;
   const actual=previewSkill(battle,p,index),b=actual.breakdown,notes=[];
   if((battle.wind?.[p]??-1)>=0)notes.push(`本次消耗逆风蓄势${battle.wind[p]}层，伤害＋${battle.wind[p]*25}；0层也结束旧蓄势。`);
   if(battle.foresight?.[p])notes.push('本次消耗预判成功增益，伤害＋30。');
   if(skill.effect==='wind'&&!actual.effectSkipped)notes.push('进攻后重新进入逆风蓄势0层；每次猜拳落败积1层，最多2层。');
   if(skill.effect==='predict'&&!actual.effectSkipped)notes.push(battle.prediction?.[p]?'保留已封存预判，不改选、不叠加。':'点击后秘密选择预判进攻或撤退，与本次技能一并封存。');
   if(battle.prediction?.[1-p])notes.push('对方的秘密预判将在本次行动结束后揭晓。');
+  if(actual.transformed)notes.push(`伤害后转为${CARD[actual.transformed.to].name}，继承全部战斗状态；若战败，失去${CARD[actual.transformed.to].name}。`);
   if(actual.effectSkipped)notes.push('伤害致胜后立即结算，附加效果不再触发。');
   else if(actual.lethal)notes.push('本次可击败对方，结束对局。');
   if(actual.selfDefeat)notes.push('警告：行动后持续伤害会使自己HP归零，判负失卡。');
@@ -213,7 +215,7 @@ function skillButton(battle,p,skill,index){
   const impact=`实际伤害 ${actual.damage}${skill.effect==='heal'?` · 实际回血 ${actual.healing}`:skill.effect==='delay'?` · 对方剩余撤退 +${actual.delay}`:''}`;
   const afterShield=Math.max(0,b.afterReduction-b.blocked);
   const immediate=afterShield-actual.deferred[1-p];
-  const calculation=`基础${b.base}${b.bonus?`＋强化${b.bonus}`:''}${b.multiplier!==1?`→削弱25%后${b.afterReduction}`:''}${b.blocked?`－护盾${b.blocked}`:''}${actual.deferred[1-p]?`－暂存${actual.deferred[1-p]}`:''}＝${immediate}${actual.damage<immediate?`；实际直接扣血受剩余HP限制为${actual.damage}`:''}${actual.settled[1-p]?`；旧伤另扣${actual.settled[1-p]}`:''}`;
+  const calculation=`基础${b.base}${b.bonus?`＋强化${b.bonus}`:''}${b.elementMultiplier!==1?`×属性倍率${b.elementMultiplier}`:''}${b.multiplier!==1?`→削弱25%后${b.afterReduction}`:''}${b.blocked?`－护盾${b.blocked}`:''}${actual.deferred[1-p]?`－暂存${actual.deferred[1-p]}`:''}＝${immediate}${actual.damage<immediate?`；实际直接扣血受剩余HP限制为${actual.damage}`:''}${actual.settled[1-p]?`；旧伤另扣${actual.settled[1-p]}`:''}`;
   return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='heal'||actual.burnDamage[p]?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
 }
 function retreatButton(b,p){
