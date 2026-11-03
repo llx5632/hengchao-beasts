@@ -51,19 +51,12 @@ test('拼点先五卡封存确认洗牌，再双零亮牌并用炭铃45对35的�
   assert.equal(s.match.point.comparisons[0].kind,'double-zero');assert.equal(s.match.round,1);
   assert.match(tutorialGuidance(s).text,/自己的强项/);assert.throws(()=>act(s,'complete'),/自主判断/);
 });
-test('可选择继续练完五小局，教学仍走真实胜负与收藏实例守恒',()=>{
-  let s=practice();const ids=s.match.inventories.flat().map(c=>c.id).sort();let guard=0;
-  while(s.match.status==='active'&&guard++<60){
-    const m=s.match;
-    if(m.phase==='between')s=act(s,'continue');
-    else if(m.phase==='point'){
-      const cards=m.point.cards.map(c=>CARD[c.cardId]);
-      const value=POINT_NUMBERS.find(n=>{const i=pointMetricIndex(n+1);return i!==null&&METRICS[i].read(cards[0])!==METRICS[i].read(cards[1]);});
-      s=act(s,'point',{value});
-    }else s=act(s,'next');
-  }
-  assert.equal(s.match.status,'finished');assert.equal(s.match.round,5);
-  assert.deepEqual(s.match.inventories.flat().map(c=>c.id).sort(),ids);assert.equal(act(act(s,'complete'),'explore').status,'completed');
+test('自主练习一次后直接到结束页，不要求继续五局，实例仍守恒',()=>{
+  const s=practice();assert.equal(s.summary,true);assert.equal(s.match.round,1);
+  assert.equal(s.match.inventories.flat().length,10);assert.equal(new Set(s.match.inventories.flat().map(c=>c.id)).size,10);
+  const html=renderTutorial(s,()=>''),finished=act(s,'explore');
+  assert.match(html,/现在可以自由探索了/);assert.doesNotMatch(html,/继续自由练习|重试自主练习|查看学习总结/);
+  assert.equal(finished.status,'completed');assert.throws(()=>act(s,'next'),/教学已结束/);
 });
 test('首次无存档显示欢迎，跳过后刷新不再自动弹出；已有玩家不被打断',()=>{
   const first=appHarness();assert.equal(first.dialog.open,true);assert.match(first.dialog.innerHTML,/欢迎来到衡潮群岛/);
@@ -94,7 +87,7 @@ test('UI完整教学可完成，恢复全部卡牌也保留教程完成标记',(
   assert.match(h.app.innerHTML,/撤退成功/);next();choose();h.click('tutorial-ready');h.click('tutorial-continue');
   h.click('tutorial-point',{value:'0'});assert.match(h.app.innerHTML,/亮牌后用原卡重比/);next();
   assert.match(h.app.innerHTML,/45＞35/);h.click('tutorial-point',{value:'3'});h.click('tutorial-practice');
-  h.click('tutorial-point',{value:'3'});h.click('tutorial-complete');assert.match(h.app.innerHTML,/现在可以自由探索了/);h.click('tutorial-explore');
+  h.click('tutorial-point',{value:'3'});assert.match(h.app.innerHTML,/现在可以自由探索了/);h.click('tutorial-explore');
   assert.equal(h.run('route'),'home');assert.equal(h.run('store.tutorial.status'),'completed');assert.equal(h.run('JSON.stringify(store.players)'),players);
   h.click('confirm-reset');assert.equal(h.run('store.tutorial.status'),'completed');
 });
@@ -118,12 +111,11 @@ test('教学拼点展示双零、强项预演与真实揭晓，后续总和7高�
   s=act(s,'point',{value:0});assert.match(view(s),/双零亮牌，用原卡重比/);
   s=act(s,'next');assert.match(view(s),/教学预演/);assert.match(view(s),/3＋1＝4/);
   assert.match(view(first),/本次出点已揭晓/);assert.match(view(first),/你 45 ＞ AI 35/);
-  s=act(act(practice(),'next'),'continue');
-  assert.doesNotMatch(view(s),/教学预演|aria-current="true"|当前卡牌的六项静态数值/);
-  s=act(s,'point',{value:6});const html=view(s);
+  s=act(practice(6),'explore'); assert.equal(s.status,'completed'); s={...practice(6),summary:false};
+  const html=view(s);
   assert.match(html,/6＋1＝7/);assert.match(html,/第1项 · 名字字数/);
   assert.match(html,/tutorial-metric-focus" aria-current="true"><small>总和 1 \/ 7/);
-  assert.match(html,/<th>涡须鲵<\/th><th>根冠鹿<\/th>/);
+  assert.match(html,/<th>炭铃<\/th><th>负潮巨鳖<\/th>/);
   assert.doesNotMatch(html,/tutorial-metric-focus" aria-current="true"><small>总和 4 \/ 10/);
 });
 
@@ -138,19 +130,19 @@ test('自主练习不预告答案，七个点数均可选；选错真实输卡�
   const wrong=act(s,'point',{value:6});assert.equal(JSON.stringify(s),before);
   assert.equal(wrong.practiceDone,true);assert.equal(wrong.match.rounds[0].winner,1);
   assert.deepEqual(wrong.match.rounds[0].comparison.values,[2,4]);assert.equal(wrong.match.transfers[0].from,0);
-  assert.match(tutorialGuidance(wrong).text,/对方更强/);assert.match(renderTutorial(wrong,()=>''),/6＋1＝7/);
-  assert.match(renderTutorial(wrong,()=>''),/总和7超过6/);
-  const retried=act(wrong,'practice');assert.equal(retried.practiceDone,false);
-  const won=act(retried,'point',{value:3});assert.equal(won.match.rounds[0].winner,0);
-  assert.match(tutorialGuidance(won).text,/你用强项赢下/);
+  assert.equal(wrong.summary,true);assert.match(renderTutorial(wrong,()=>''),/对方更强/);
+  assert.match(renderTutorial(wrong,()=>''),/超过6/);
+  assert.throws(()=>act(wrong,'practice'),/教学已结束/);
+  const won=practice(3);assert.equal(won.match.rounds[0].winner,0);
+  assert.match(renderTutorial(won,()=>''),/你用强项赢下/);
 });
 
-test('自主练习和结束语刷新恢复，错选后也可查看总结并自由探索，正式存档不变',()=>{
+test('自主练习后立即到结束页，刷新恢复且正式存档不变',()=>{
   const saved=freshSession();saved.tutorial=act(pointWin(),'practice');const players=JSON.stringify(saved.players);
   let h=appHarness(saved);assert.equal(h.run('route'),'tutorial');assert.match(h.app.innerHTML,/这次由你判断/);
   h.click('tutorial-point',{value:'1'});assert.match(h.app.innerHTML,/这次没有发挥优势/);
   h=appHarness(JSON.parse(h.storage.get(SAVE_KEY)));assert.equal(h.run('store.tutorial.practiceDone'),true);
-  h.click('tutorial-complete');assert.equal(h.run('store.tutorial.summary'),true);
+  assert.equal(h.run('store.tutorial.summary'),true);
   assert.equal(h.run('store.tutorial.status'),'active');assert.match(h.app.innerHTML,/现在可以自由探索了/);
   h=appHarness(JSON.parse(h.storage.get(SAVE_KEY)));assert.match(h.app.innerHTML,/全部教学已结束/);
   h.click('tutorial-explore');assert.equal(h.run('store.tutorial.status'),'completed');assert.equal(h.run('route'),'home');
