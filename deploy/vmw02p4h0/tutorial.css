@@ -98,3 +98,8 @@
  .tutorial-outcome{font-size:12px;padding:15px 10px}.tutorial-outcome>strong{font-size:15px}
  .tutorial-hidden{max-width:145px}.tutorial-hidden p{font-size:17px}
 }
+.tutorial-optional{margin:20px 0;padding:15px 18px;border:1px solid var(--line);border-radius:5px;background:#f6f2e8;font-size:13px;line-height:1.9}
+.tutorial-optional summary{cursor:pointer;font-weight:600;line-height:1.8}
+.tutorial-optional p{margin:13px 0 0}
+.tutorial-finale h2{font-size:25px;line-height:1.6}
+.tutorial-free-practice{text-align:center;margin-top:18px}
