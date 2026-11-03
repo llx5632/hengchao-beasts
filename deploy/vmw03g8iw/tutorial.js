@@ -13,7 +13,6 @@ export function newTutorial(status='welcome') {
 export function normalizeTutorial(value,firstVisit=false) {
   if(value?.version===TUTORIAL_VERSION&&statuses.includes(value.status)){
     if(['active','paused'].includes(value.status)&&(!['attribute','battle','point'].includes(value.lesson)||!value.match?.inventories||!Array.isArray(value.draft)))return newTutorial();
-    if(value.lesson==='point'&&value.practiceDone&&['round-result','point-tie','finished'].includes(value.match?.phase))return {...value,summary:true};
     return value;
   }
   return newTutorial(firstVisit?'welcome':'available');
@@ -80,9 +79,9 @@ export function tutorialAction(state,action) {
     check(target===null||action.value===target,target===0?'先选0，体验双零亮牌重比。':'这次请选3，与教学AI的1相加，比较最高基础伤害。');
     apply({type:'point',player:1,value:target===0?0:1});
     apply({type:'point',player:0,value:action.value});
-    if(next.pointExercise&&['round-result','point-tie'].includes(next.match.phase)){next.practiceDone=true;next.summary=true;}
+    if(next.pointExercise&&['round-result','point-tie'].includes(next.match.phase))next.practiceDone=true;
   }else if(action.type==='practice'){
-    check(next.lesson==='point'&&!next.pointExercise&&(m.phase==='round-result'||m.status==='finished'),'请先完成拼点示范，自主练习只进行一次。');
+    check(next.lesson==='point'&&(m.phase==='round-result'||m.phase==='point-tie'&&next.pointExercise||m.status==='finished'),'请先完成拼点示范。');
     next.match=practiceMatch();next.pointExercise=true;next.practiceDone=false;next.draft=[];
   }else if(action.type==='ready'){
     check(m.phase==='lineup-reveal','当前不在阵容确认阶段。');
@@ -146,7 +145,7 @@ export function tutorialGuidance(state) {
     const r=m.rounds.at(-1),metric=r.comparison?METRICS[r.comparison.metric].name:null;
     if(state.pointExercise){
       const c=r.comparison;
-      return {title:r.winner===0?'你自己找到了优势':'这次没有发挥优势，看看原因',text:c?`你出${c.numbers[0]}，AI出${c.numbers[1]}，相加为${c.sum}${c.sum>6?'（超过6，从第1项重新数）':''}，对应${metric}；你的数值${c.values[0]}，对方${c.values[1]}。${r.winner===0?'你用强项赢下了这次练习。':'这次比较的项目对方更强，所以本小局失利；回看双方数值，找找哪一项自己更大。'}正式对局中对方秘密出点，策略只能提高机会，不能保证比较到优势项。无论这次胜负如何，都记得观察双方强弱项，再决定如何出点。`:'同种卡直接跳过，双方保留；本次仍计入五小局进度。'};
+      return {title:r.winner===0?'你自己找到了优势':'这次没有发挥优势，看看原因',text:c?`你出${c.numbers[0]}，AI出${c.numbers[1]}，相加为${c.sum}，对应${metric}；你的数值${c.values[0]}，对方${c.values[1]}。${r.winner===0?'你用强项赢下了这次练习。':'这次比较的项目对方更强，所以本小局失利；回看双方数值，找找哪一项自己更大。'}正式对局中对方秘密出点，策略只能提高机会，不能保证比较到优势项。你可以重试，也可以选择教学结束；想多练习还可以继续剩余小局。`:'同种卡直接跳过，双方保留；本次仍计入五小局进度。'};
     }
     return {title:m.round===1?'比较强项，赢下一张谱印':'本小局已经结算',text:m.round===1?'这次比较最高基础伤害：炭铃45，对方35，你获胜。用自己的强项对抗对方弱项，而不只挑HP或体型大的一张。正式对局胜者拿走败方当前卡；接下来再用这组公开谱印自己判断一次，不再提示该出几。':r.kind==='same'?'同种卡直接跳过，双方保留；本次仍计入五小局进度。':`本次比较${metric}，数值更大者获胜。接下来进入一次自主判断练习。`};
   }
