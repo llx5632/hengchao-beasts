@@ -201,6 +201,7 @@ function skillButton(battle,p,skill,index){
   if(skill.effect==='burst')notes.push(b.bonus?'本次消耗蓄势。':'尚未蓄势，本次基础伤害35。');
   if(skill.effect==='echo')notes.push(battle.echo?.[p]?`回响记录${battle.echo[p]}，取一半向下取整、最多＋30；本次使用后清除。`:'没有受伤记录，本次不追加伤害。');
   if(skill.effect==='desperate')notes.push(battle.hp[p]<=60?'绝境已生效。':'当前HP高于60，绝境未生效。');
+  if(skill.effect==='pursuit')notes.push(battle.remaining[1-p]===1?'对方剩余撤退为1，本次追击伤害＋40；不阻止成功撤退。':`对方剩余撤退为${battle.remaining[1-p]}，未满足追击条件。`);
   if(skill.effect==='burn'&&!actual.effectSkipped)notes.push(`${battle.burn?.[1-p]?'刷新':'施加'}余烬烙印：之后2次任一方行动结束各受15伤害，不叠加。`);
   if(skill.effect==='mark'&&!actual.effectSkipped)notes.push(battle.mark?.[1-p]===p?'对方已有自己的晶痕，不叠加。':'给对方留下1个晶痕。');
   if(skill.effect==='bite')notes.push(b.bonus?'本次消耗对方晶痕，伤害＋25。':'对方没有自己的晶痕，本次基础伤害40。');

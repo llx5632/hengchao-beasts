@@ -21,5 +21,6 @@ export const CURRENT_ART = Object.freeze({
   "mingnang": "候选设计/鸣囊海豹/鸣囊海豹.png",
   "zhoulan": "当前卡面/昼岚狐.png",
   "yelan": "当前卡面/夜岚狐.png",
-  "koujinchan": "当前卡面/叩金蟾.png"
+  "koujinchan": "当前卡面/叩金蟾.png",
+  "jiejing": "候选设计/截径棘虎/截径棘虎.png"
 });

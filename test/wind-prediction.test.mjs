@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CARD,METRICS} from '../dist/data.js';
+import {CARDS,CARD,METRICS} from '../dist/data.js';
 import {resolveCombatAction as act,applyRpsLoss,previewSkill,combatStatuses,combatStatusKey,clearCombatStatuses} from '../dist/combat.js';
 import {dispatch,aiAction,expectedPlayers} from '../dist/engine.js';
 import {freshSession,createLocalMatch,upgradeSession,RULES_REVISION} from '../dist/session.js';
@@ -107,7 +107,7 @@ for(const difficulty of ['easy','hard'])test(`${difficulty} AI不探测真实秘
   for(const cards of [['xuanjiao','lujia'],['chaojing','panjia'],['chaojing','chaojing']]){
     m=match(...cards).match;m.difficulty=difficulty;m.phase='battle-reveal';let seed=31,tick=0;const rng=()=>((seed=(seed*1664525+1013904223)>>>0)/4294967296);
     while(m.status==='active'&&tick++<150){const expected=expectedPlayers(m);m=dispatch(m,expected.length?aiAction(m,expected[0],rng):{type:'advance'},rng);}
-    assert.equal(m.status,'finished');assert.equal(m.inventories.flat().length,44);
+    assert.equal(m.status,'finished');assert.equal(m.inventories.flat().length,CARDS.length*2);
   }
 });
 test('新状态缓存、JSON续局与旧规则迁移；收藏及偏好不重置',()=>{

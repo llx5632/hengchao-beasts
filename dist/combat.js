@@ -23,6 +23,8 @@ export function twinDamageMultiplier(skill,element){
   if(skill.effect==='twin-night')return element==='火'?2:element==='草'?.5:1;
   return 1;
 }
+// A current public-value condition, never a stored buff or a retreat reaction.
+export function pursuitBonus(battle,player,skill){return skill.effect==='pursuit'&&battle.remaining[1-player]===1?skill.amount:0;}
 export function battleActions(battle,player){
   return CARD[battle.cards[player]].skills.flatMap((s,skill)=>!skillAvailable(battle,player,skill)?[]:s.effect==='predict'&&!battle.prediction?.[player]?[{type:'attack',skill,prediction:'attack'},{type:'attack',skill,prediction:'retreat'}]:[{type:'attack',skill}]).concat({type:'retreat'});
 }
@@ -44,6 +46,7 @@ export function combatStatuses(s,p,viewer=0){
   if(c.id==='xianbei')add('charge',s.charge?.[p]?'蓄势：裂风突袭＋30':'蓄势：未蓄势',!!s.charge?.[p],'来源：蓄势扑击。仅下次裂风突袭消耗，不叠加；猜拳、受伤及未成功撤退保留，结束清空。');
   if(c.id==='dielin'||s.shield?.[p])add('shield',s.shield?.[p]?`护盾${s.shield[p]} · 下次受击消耗`:'护盾：未生效',!!s.shield?.[p],'来源：迎击护壳。抵消下次技能进攻至多15直接伤害，0伤害也消耗，余量不留、不叠加。不抵消持续伤害，不取消存活时的附加效果。');
   if(c.id==='jinzong')add('desperate',s.hp[p]<=60?'绝境生效 · 反扑60':'绝境：未生效（HP＞60）',s.hp[p]<=60,'来源：绝境反扑。使用时HP≤60总伤害60，否则30；回血高于60即失效，不自动反击。');
+  if(c.id==='jiejing')add('pursuit',s.remaining[other]===1?'追击就绪 · 封路追击＋40':'追击：未满足（对方剩余撤退＞1）',s.remaining[other]===1,'来源：封路追击。使用时对方当前剩余撤退为1，本次伤害＋40；基础撤退1开局即可触发，每次独立判断、不积层。对方剩余撤退提高至2或以上即不满足。只在自己正常进攻时生效；对方成功撤退立即结束，不自动补打或阻止撤退。');
   if(c.id==='mingnang')add('echo',s.echo?.[p]?`回响记录${s.echo[p]} · 可追加${Math.min(30,Math.floor(s.echo[p]/2))}`:'回响：无受伤记录',!!s.echo?.[p],'来源：最近一次对方技能的实际直接HP损失，正数覆盖、0不覆盖，持续伤害不记录。仅借势回响消耗，一半向下取整、最多30。');
   if(s.burn?.[p])add('burn',`余烬15 · 余${s.burn[p]}次双方行动`,true,`来源：${CARD[s.cards[other]].name}的烬羽横扫。任一方进攻或撤退后，战斗仍继续则扣15；首次施加从下次行动起，猜拳不触发。先回血后持续伤害，直接击败或撤退成功立即结束。刷新至2次、不叠加；旧烙印即使本次刷新也正常触发。`);
   if(s.mark?.[p]===other)add('mark','晶痕 · 对方猛咬＋25',true,`来源：${CARD[s.cards[other]].name}的碎晶飞掷。只被施加者的裂晶猛咬消耗，不叠加；盾抵消仍消耗，猜拳及其他行动保留。`);
@@ -106,6 +109,8 @@ export function resolveCombatAction(battle,player,action){
     return state.remaining[player]===0?outcome(true,null):actionEnd();
   }
   const skill=CARD[state.cards[player]].skills[action.skill];let bonus=0;
+  const pursuit=pursuitBonus(state,player,skill);
+  if(pursuit){bonus+=pursuit;events.push(`${label(other)}剩余撤退为1，封路追击伤害＋${pursuit}`);}
   if(state.wind[player]>=0){bonus+=state.wind[player]*25;events.push(`${label(player)}释放逆风蓄势${state.wind[player]}层，伤害＋${state.wind[player]*25}，旧蓄势结束`);state.wind[player]=-1;}
   if(state.foresight[player]){bonus+=state.foresight[player];events.push(`${label(player)}消耗预判成功增益，伤害＋${state.foresight[player]}`);state.foresight[player]=0;}
   if(skill.effect==='burst'&&state.charge[player]){bonus=skill.amount;state.charge[player]=false;events.push(`${label(player)}的蓄势已消耗，伤害＋${bonus}`);}

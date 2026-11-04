@@ -21,5 +21,6 @@ export const CURRENT_ART = Object.freeze({
   "mingnang": "art/mingnang.webp",
   "zhoulan": "art/zhoulan.webp",
   "yelan": "art/yelan.webp",
-  "koujinchan": "art/koujinchan.webp"
+  "koujinchan": "art/koujinchan.webp",
+  "jiejing": "art/jiejing.webp"
 });

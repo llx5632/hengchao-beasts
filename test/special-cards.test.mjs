@@ -9,7 +9,7 @@ const battle=(a,b)=>({cards:[a,b],hp:[CARD[a].hp,CARD[b].hp],remaining:[CARD[a].
 const hit=(b,p,skill)=>act(b,p,{type:'attack',skill});
 
 test('四卡字段、卡面映射及拼点基础值保持分离',()=>{
-  assert.equal(CARDS.length,22);
+  assert.equal(CARDS.length,23);
   for(const [id,base] of [['xianbei',35],['dielin',40],['jinzong',45],['mingnang',40]]){
     assert.equal(CARD[id].skills.length,2);assert.equal(METRICS[3].read(CARD[id]),base);assert.match(CARD[id].art,/候选设计/);
     assert(!skillText(CARD[id].skills[0]).includes('undefined'));
