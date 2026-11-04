@@ -15,7 +15,7 @@ function advance(h){h.elapse(300);h.click('egg-next',{step:String(h.run('store.e
 
 test('赢走AI最后一张卡触发发现弹窗，不影响真实赢卡结果',()=>{
   const h=win();assert.equal(h.eggDialog.open,true);assert.match(h.eggDialog.innerHTML,/恭喜你发现了彩蛋/);
-  assert.equal(h.run('store.players[1].cards.length'),0);assert.equal(h.run('store.players[0].cards.length'),22);
+  assert.equal(h.run('store.players[1].cards.length'),0);assert.equal(h.run('store.players[0].cards.length'),23);
   assert.equal(h.run('store.match.transfers.length'),1);assert.equal(h.run('store.easterEgg.step'),0);
 });
 test('依次展示三个相同悬念，再显示完整原文感谢语，点击后才开始烟花',()=>{
@@ -43,7 +43,7 @@ test('烟花切后台暂停结束计时，返回重给展示时间，完成后�
   h.visibility(true);assert.ok(!h.delays.includes(FIREWORKS_DURATION));h.visibility(false);assert.ok(h.delays.includes(FIREWORKS_DURATION));
   h.fireTimer(FIREWORKS_DURATION);assert.equal(h.eggDialog.open,false);assert.equal(h.run('store.easterEgg.status'),'completed');
   const saved=JSON.parse(h.storage.get(SAVE_KEY));assert.equal(appHarness(saved).eggDialog.open,false);
-  h.click('confirm-reset');assert.equal(h.run('store.easterEgg'),null);assert.equal(h.run('store.players[1].cards.length'),21);
+  h.click('confirm-reset');assert.equal(h.run('store.easterEgg'),null);assert.equal(h.run('store.players[1].cards.length'),22);
 });
 test('拼点第五小局赢光AI时触发，公共自动推进被彩蛋弹窗暂停',()=>{
   const s=freshSession();const own=['fuchao','fuyun','genguan','jinzong','panjia'],other=['mingjing','taituan','tanling','woxu','zhiyi'];

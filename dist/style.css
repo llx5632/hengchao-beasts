@@ -178,3 +178,5 @@
 .combat-statuses{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.combat-status{padding:7px 9px;border:1px solid #c6bfae;border-radius:4px;background:#f8f4e8;color:#687468;font:11px/1.6 "Microsoft YaHei",sans-serif;text-align:left}.combat-status.status-active{border-color:#9b8048;background:#e9dbb6;color:#4f411d}.combat-status:focus-visible{outline:2px solid #9b8048;outline-offset:2px}@media(max-width:640px){.combat-status{font-size:10px;padding:5px 6px}}
 
 .skill-notice.risk{background:#f5e3de;color:#863d2d;border-left:3px solid #a45b45;padding:7px 9px}
+
+.dice-face{font-size:4rem;color:var(--ink,#183e35);line-height:1.2;margin:12px 0}.skill-button:disabled{opacity:.65;cursor:not-allowed}

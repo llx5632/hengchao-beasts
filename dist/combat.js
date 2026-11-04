@@ -53,7 +53,7 @@ export function combatStatuses(s,p,viewer=0){
 }
 // Preview, real play and AI share an immutable resolver.
 export function resolveCombatAction(battle,player,action){
-  const state={...battle,cards:[...battle.cards],hp:[...battle.hp],remaining:[...battle.remaining],...(battle.instances?{instances:[...battle.instances]}:{})};
+  const state={...battle,dicePending:null,cards:[...battle.cards],hp:[...battle.hp],remaining:[...battle.remaining],...(battle.instances?{instances:[...battle.instances]}:{})};
   if(action.type==='attack'&&!skillAvailable(battle,player,action.skill))throw new Error('缺少已绑定的双生伙伴，无法使用双生相转');
   for(const [k,v] of Object.entries(empty()))state[k]=[...(battle[k]??v)];
   const other=1-player,startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],waiting=state.prediction[other],events=[],effects={healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0]};
@@ -117,13 +117,15 @@ export function resolveCombatAction(battle,player,action){
   }
   if(skill.effect==='bite'&&state.mark[other]===player){bonus=skill.amount;state.mark[other]=null;events.push(`${label(other)}的晶痕已消耗，猛咬伤害＋${bonus}`);}
   if(skill.effect==='root-strike'&&state.root[player]){bonus=skill.amount;state.root[player]--;events.push(`${label(player)}消耗1次根劲，伤害＋${bonus}，剩余${state.root[player]}次`);}
-  const raw=skill.damage+bonus,elementMultiplier=twinDamageMultiplier(skill,CARD[state.cards[other]].element),multiplier=state.weaken[player]?0.75:1,afterReduction=Math.floor(raw*elementMultiplier*multiplier);
+  const die=skill.effect==='dice'?action.die:1;
+  if(!Number.isInteger(die)||die<1||die>6)throw new Error('掷骰伤害需要有效的最终骰点');
+  const raw=skill.damage*die+bonus,elementMultiplier=twinDamageMultiplier(skill,CARD[state.cards[other]].element),multiplier=state.weaken[player]?0.75:1,afterReduction=Math.floor(raw*elementMultiplier*multiplier);
   if(elementMultiplier!==1)events.push(`双生属性倍率×${elementMultiplier}`);
   if(state.weaken[player]){state.weaken[player]--;events.push(`${label(player)}进攻被削弱25%，${raw}→${afterReduction}，剩余${state.weaken[player]}次`);}
   const blocked=Math.min(afterReduction,state.shield[other]);
   if(state.shield[other]){state.shield[other]=0;events.push(`${label(other)}的护盾抵消${blocked}伤害，已消耗`);}
   const damage=receiveDamage(other,Math.max(0,afterReduction-blocked),true);
-  breakdown={base:skill.damage,bonus,raw,elementMultiplier,multiplier,afterReduction,blocked,damage,directLethal:state.hp[other]===0};text=`${skill.name}造成 ${damage} 伤害（直接）`;
+  breakdown={base:skill.damage,die,bonus,raw,elementMultiplier,multiplier,afterReduction,blocked,damage,directLethal:state.hp[other]===0};text=`${skill.name}造成 ${damage} 伤害（直接）`;
   if(state.hp[other]===0)return outcome(true,player);
   if(CARD[state.cards[other]].id==='mingnang'&&damage>0){const old=state.echo[other];state.echo[other]=damage;events.push(`${label(other)}回响记录${old?'由'+old+'更新为':'为'}${damage}`);}
   if(skill.effect==='twin-shift'){
@@ -157,8 +159,32 @@ export function resolveCombatAction(battle,player,action){
   }
   return actionEnd();
 }
-export function previewSkill(battle,player,skillIndex){
-  const other=1-player,skill=CARD[battle.cards[player]].skills[skillIndex],r=resolveCombatAction(battleForViewer(battle,player),player,{type:'attack',skill:skillIndex});
+export function previewSkill(battle,player,skillIndex,die=null){
+  if(CARD[battle.cards[player]].skills[skillIndex].effect==='dice'&&die===null){
+    const outcomes=[1,2,3,4,5,6].map(n=>previewSkill(battle,player,skillIndex,n));
+    return {random:true,outcomes,minDamage:Math.min(...outcomes.map(r=>r.damage)),maxDamage:Math.max(...outcomes.map(r=>r.damage))};
+  }
+  const other=1-player,skill=CARD[battle.cards[player]].skills[skillIndex],r=resolveCombatAction(battleForViewer(battle,player),player,{type:'attack',skill:skillIndex,...(die===null?{}:{die})});
   const directLethal=r.breakdown.directLethal;
   return {transformed:r.effects.transformed??null,deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:directLethal&&['heal','delay','charge','shield','burn','mark','weaken','root','seal','wind','predict','twin-shift'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
+}
+
+export function combatOutcomes(battle,player,action){
+  const dice=action.type==='attack'&&CARD[battle.cards[player]].skills[action.skill].effect==='dice'&&action.die===undefined;
+  return dice?[1,2,3,4,5,6].map(die=>resolveCombatAction(battle,player,{...action,die})):[resolveCombatAction(battle,player,action)];
+}
+export function expectedCombatScore(battle,player,action,score){
+  const results=combatOutcomes(battle,player,action),values=results.map(score),mean=values.reduce((a,b)=>a+b,0)/values.length;
+  return values.length===1?mean:values.reduce((sum,v)=>sum+Math.max(v,mean),0)/6;
+}
+export function immediateCombatScore(battle,player,result){
+  if(result.finished)return result.winner===player?100000:result.winner===null?0:-100000;
+  return battle.hp[1-player]-result.state.hp[1-player]+result.state.hp[player]-battle.hp[player]+combatStatusValue(result.state,player)-combatStatusValue(battle,player);
+}
+export function simpleDiceChoice(battle,player){
+  const pending=battle.dicePending,action={type:'attack',skill:pending.skill};
+  const keep=resolveCombatAction(battleForViewer(battle,player),player,{...action,die:pending.first});
+  const score=r=>immediateCombatScore(battle,player,r);
+  const reroll=combatOutcomes(battleForViewer(battle,player),player,action).reduce((sum,r)=>sum+score(r),0)/6;
+  return score(keep)>=reroll?'dice-keep':'dice-reroll';
 }

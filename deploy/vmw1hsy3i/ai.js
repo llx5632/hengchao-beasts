@@ -1,5 +1,5 @@
 import { CARD, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
-import { resolveCombatAction, combatStatusKey, combatStatusValue, applyRpsLoss, battleActions, twinDamageMultiplier } from './combat.js';
+import { resolveCombatAction, combatStatusKey, combatStatusValue, applyRpsLoss, battleActions, twinDamageMultiplier, combatOutcomes } from './combat.js';
 
 export const DIFFICULTIES=Object.freeze({
   easy:{label:'简单',description:'随机选卡、选点和猜拳，使用基础行动判断。'},
@@ -41,17 +41,20 @@ export function hardPointAction(match,player,rng=Math.random) {
 
 export function hardBattleAction(match,player,rng=Math.random) {
   const other=1-player, memo=new Map();
-  const actions=battleActions(match.battle,player);
+  const pending=match.phase==='dice-choice'?match.battle.dicePending:null;
+  const actions=pending?[{type:'dice-keep'},{type:'dice-reroll'}]:battleActions(match.battle,player);
   // Evaluate both possible private choices with equal prior; never inspect the real choice.
   const beliefs=match.battle.prediction?.[other]?['attack','retreat'].map(choice=>({...match.battle,prediction:match.battle.prediction.map((v,p)=>p===other?choice:v)})):[match.battle];
   const heuristic=state=>{
-    const damage=state.cards.map((id,p)=>Math.max(...CARD[id].skills.map(s=>s.damage*twinDamageMultiplier(s,CARD[state.cards[1-p]].element))));
+    const damage=state.cards.map((id,p)=>Math.max(...CARD[id].skills.map(s=>s.damage*(s.effect==='dice'?4.25:1)*twinDamageMultiplier(s,CARD[state.cards[1-p]].element))));
     return 1/(1+Math.exp(-.8*(state.hp[player]/damage[other]-state.hp[other]/damage[player]+combatStatusValue(state,player)/Math.max(...damage))));
   };
   function afterAction(state,actor,action,depth) {
-    const result=resolveCombatAction(state,actor,action);
-    if(result.finished)return result.winner===null ? 0.5 : result.winner===player ? 1 : 0;
-    return depth===0?heuristic(result.state):nextTurn(result.state,depth-1);
+    if(action.type==='dice-keep')return afterAction(state,actor,{type:'attack',skill:pending.skill,die:pending.first},depth);
+    if(action.type==='dice-reroll')return [1,2,3,4,5,6].reduce((sum,die)=>sum+afterAction(state,actor,{type:'attack',skill:pending.skill,die},depth),0)/6;
+    const results=combatOutcomes(state,actor,action),values=results.map(result=>result.finished?(result.winner===null?.5:result.winner===player?1:0):depth===0?heuristic(result.state):nextTurn(result.state,depth-1));
+    const mean=values.reduce((a,b)=>a+b,0)/values.length;
+    return values.length===1?mean:values.reduce((sum,v)=>sum+(actor===player?Math.max(v,mean):Math.min(v,mean)),0)/6;
   }
   function nextTurn(state,depth) {
     const key=`${depth}:${state.hp.join(',')}:${state.remaining.join(',')}:${combatStatusKey(state)}`;
@@ -64,11 +67,13 @@ export function hardBattleAction(match,player,rng=Math.random) {
     memo.set(key,value);
     return value;
   }
-  const values=actions.map(a=>beliefs.reduce((sum,state)=>sum+afterAction(state,player,a,4),0)/beliefs.length);
+  const values=actions.map(a=>beliefs.reduce((sum,state)=>sum+afterAction(state,player,a,match.battle.cards.some(id=>CARD[id].skills.some(s=>s.effect==='dice'))?2:4),0)/beliefs.length);
   const best=Math.max(...values);
   const candidates=actions.filter((_,i)=>Math.abs(values[i]-best)<1e-9);
   const gain=action=>{
     if(action.type==='retreat')return .1;
+    if(action.type==='dice-keep'||action.type==='dice-reroll')return action.type==='dice-keep'?.001:0;
+    if(CARD[match.battle.cards[player]].skills[action.skill].effect==='dice')return combatOutcomes(match.battle,player,action).reduce((sum,r)=>sum+match.battle.hp[other]-r.state.hp[other],0)/6;
     return beliefs.reduce((sum,state)=>{const next=resolveCombatAction(state,player,action).state;
       return sum+state.hp[other]-next.hp[other]+next.hp[player]-state.hp[player]+5*(next.remaining[other]-state.remaining[other])+combatStatusValue(next,player)-combatStatusValue(state,player)-2*(next.remaining[player]-state.remaining[player]);},0)/beliefs.length;
   };

@@ -26,13 +26,14 @@ if(store.match)store.match.difficulty=normalizeDifficulty(store.match.difficulty
 let route=store.match&&!(store.selectionLobby&&canLeaveSelection(store.match)) ? 'match' : 'home', draft=selectionDraft(store.match), filter='全部', owner=0, timer=null, toastTimer=null, previewCardId=null, paused=false;
 let selectionElement='全部',selectionSort='default',selectionAscending=false,selectedOnly=false,draftOverviewOpen=false;
 let presetsOpen=false,draftNotice=draft.length?'已恢复上次未封存的选卡。':'';
+let diceSaveBlocked=false;
 let storageFailed=false,readingOpen={log:false,lineup:false};
 let eggTimer=null,eggAdvanceAt=0;
 if(store.tutorial.status==='active')route='tutorial';
 const name=p => store.players[p].name;
 const esc=value => String(value).replace(/[&<>"']/g,c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const btn=(text,action,cls='',attrs='') => `<button class="btn ${cls}" data-action="${action}" ${attrs}>${text}</button>`;
-function save(){try{localStorage.setItem(KEY,JSON.stringify(store));storageFailed=false;return true;}catch{storageFailed=true;toast('存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。');return false;}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(store));storageFailed=false;diceSaveBlocked=false;return true;}catch{storageFailed=true;toast('存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。');return false;}}
 function saveDraft(){store.match.selectionDraft=[...draft];store.selectionDrafts[store.match.mode]=[...draft];return save();}
 function toast(text){const el=document.querySelector('#toast');el.textContent=text;el.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.display='none',4200);}
 function modal(title,body,action=null,label='确定'){
@@ -180,6 +181,7 @@ function battleStatusView(b,p){
   return `<div class="combat-statuses" aria-label="${name(p)}的技能状态">${combatStatuses(b,p).map(s=>`<button class="combat-status ${s.active?'status-active':''}" data-action="battle-status" data-player="${p}" data-kind="${s.id}" aria-label="查看${name(p)}的${s.label}">${s.label}<span aria-hidden="true"> ⓘ</span></button>`).join('')}</div>`;
 }
 function skillButton(battle,p,skill,index){
+  if(skill.effect==='dice'){const range=previewSkill(battle,p,index);return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="掷金碰运：可能实际伤害${range.minDamage}至${range.maxDamage}"><em>${range.minDamage}～${range.maxDamage}<small>可能实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-notice">掷出结果后可保留，或重掷一次并接受新结果；全程只算一次进攻。</span>${range.outcomes.some(r=>r.selfDefeat)?'<span class="skill-notice risk">未直接致胜时，行动末持续伤害可能使自己归零。</span>':''}</button>`;}
   if(!skillAvailable(battle,p,index))return `<button class="skill-button" disabled aria-label="双生相转不可用：缺少伙伴"><em>—</em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-notice">缺少已绑定的${CARD[TWIN_PARTNERS[battle.cards[p]]].name}，无法转换。</span></button>`;
   const actual=previewSkill(battle,p,index),b=actual.breakdown,notes=[];
   if((battle.wind?.[p]??-1)>=0)notes.push(`本次消耗逆风蓄势${battle.wind[p]}层，伤害＋${battle.wind[p]*25}；0层也结束旧蓄势。`);
@@ -238,6 +240,7 @@ function privateTurn(m,p){
   }
   if(m.phase==='point')return `${pointBoard(m,p,m.point.revealed)}<section class="panel center"><div class="eyebrow">${name(p)} · 第 ${m.round+1} 小局${m.point.comparisons.length?' · 亮牌重比':''}</div><h3>请选择本次点数</h3><p>双方各选 0～6，总和对应下方编号，超过 6 循环；双方均出 0 时亮牌重比。</p><div class="options points">${POINT_NUMBERS.map(n=>`<button class="option" data-action="point" data-value="${n}" aria-label="选择点数 ${n}">${n}</button>`).join('')}</div>${btn('随机选择 0～6','random-point','ghost')}${metricStrip()}</section>`;
   if(m.phase==='rps')return `${battleBoard(m)}<section class="panel center"><div class="eyebrow">${name(p)} · 秘密出拳</div><h3>石头、剪刀、布</h3><p>双方选定后同时揭晓，只有胜者获得一次行动权。</p><div class="options">${[['rock','◉','石头'],['scissors','✂','剪刀'],['paper','▤','布']].map(([v,g,n])=>`<button class="option" data-action="rps" data-value="${v}" aria-label="出${n}"><b>${g}</b>${n}</button>`).join('')}</div></section>`;
+  if(m.phase==='dice-choice')return diceTurn(m);
   if(m.phase==='battle-action'){
     const c=CARD[m.battle.cards[p]];
     return `${battleBoard(m)}<section class="panel"><div class="eyebrow">${name(p)} · 获得一次行动权</div><h3>进攻，或为撤退争取一步</h3>${rpsResult(m)}<div class="skills">${c.skills.map((s,i)=>skillButton(m.battle,p,s,i)).join('')}</div><div class="toolbar">${retreatButton(m.battle,p)}${btn('主动投降并失去当前卡','battle-surrender','danger',`data-player="${p}"`)}</div><p class="footnote">技能按钮按当前局势显示本次实际效果；伤害致胜后，后续附加效果不再触发。卡牌基础值保持不变。</p></section>`;
@@ -262,6 +265,7 @@ function sharedTurn(m){
     const r=m.rounds.at(-1);
     return `${pointBoard(m,0,true)}<section class="panel center"><div class="eyebrow">第 ${m.round} 小局结束</div><h3>${r.kind==='same'?'同一种异兽 · 直接跳过':`${name(r.winner)} 获胜`}</h3>${comparisonView(r.comparison)}<p>${r.kind==='same'?'双方各自保留卡牌，本局已计入进度。':'胜者保留自己的卡，并获得对方本次出场卡。两张出场卡均不再参与后续小局。'}</p>${btn(m.round===5?'查看整场结果':'前往下一小局','advance')}${track(m)}</section>`;
   }
+  if(m.phase==='dice-choice')return diceTurn(m);
   if(m.phase==='battle-action')return `${battleBoard(m)}<section class="panel center"><h3>${name(m.battle.actor)} 正在选择行动</h3>${rpsResult(m)}<p>本次只有猜拳胜者执行一次进攻或撤退。</p></section>`;
   const board=m.mode==='battle'&&m.battle?battleBoard(m):m.mode==='point'&&m.phase==='point'?pointBoard(m,0,m.point.revealed):'';
   return `${board}<div class="loading" role="status">群岛 AI 正在思考…${m.controls[0]==='human'?'<small>你的选择已封存，双方完成后同时揭晓。</small>':''}</div>`;
@@ -292,11 +296,11 @@ function matchView(){
 function render({resetReading=false}={}){
   if(resetReading)readingOpen={log:false,lineup:false};
   else for(const [key,selector] of [['log','.log'],['lineup','.lineup-reference']]){const node=document.querySelector(selector);if(node)readingOpen[key]=node.open;}
-  app.innerHTML=`<div class="shell">${route==='tutorial'?'':header()}${storageFailed?`<div class="save-warning" role="alert"><span>存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。</span>${btn('重试保存','retry-save','ghost small')}</div>`:''}${route==='tutorial'?renderTutorial(store.tutorial,playedCard):route==='match'?matchView():route==='home'?home():catalog()}${footer()}</div>`;scheduleAI();
+  app.innerHTML=`<div class="shell">${route==='tutorial'?'':header()}${storageFailed?`<div class="save-warning" role="alert"><span>存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。</span>${btn('重试保存','retry-save','ghost small')}</div>`:''}${diceSaveBlocked?'<main class="wrap panel"><h2>骰点正在等待存档写入</h2><p>请重试保存后继续，当前结果会保留。</p></main>':route==='tutorial'?renderTutorial(store.tutorial,playedCard):route==='match'?matchView():route==='home'?home():catalog()}${footer()}</div>`;scheduleAI();
 }
-function send(action){try{const beforePhase=store.match.phase;store.match=dispatch(store.match,action);store.players.forEach((p,i)=>p.cards=structuredClone(store.match.inventories[i]));draft=selectionDraft(store.match);if(store.match.phase!=='select'||store.match.selections[0]!==null){delete store.match.selectionDraft;delete store.selectionDrafts[store.match.mode];draftNotice='';}save();render();if(beforePhase!==store.match.phase){if(store.match.phase==='lineup-reveal')window.scrollTo(0,0);else if(store.match.mode==='battle'&&store.battleCompact)document.querySelector('.combat-layout')?.scrollIntoView({block:'start'});}maybeOpenEasterEgg();}catch(error){toast(error.message);}}
+function send(action){if(diceSaveBlocked)return toast('请先重试保存，再继续当前骰点。');try{const beforePhase=store.match.phase;store.match=dispatch(store.match,action);store.players.forEach((p,i)=>p.cards=structuredClone(store.match.inventories[i]));draft=selectionDraft(store.match);if(store.match.phase!=='select'||store.match.selections[0]!==null){delete store.match.selectionDraft;delete store.selectionDrafts[store.match.mode];draftNotice='';}const saved=save();if(!saved&&(beforePhase==='dice-choice'||store.match.phase==='dice-choice'))diceSaveBlocked=true;render();if(beforePhase!==store.match.phase){if(store.match.phase==='lineup-reveal')window.scrollTo(0,0);else if(store.match.mode==='battle'&&store.battleCompact)document.querySelector('.combat-layout')?.scrollIntoView({block:'start'});}maybeOpenEasterEgg();}catch(error){toast(error.message);}}
 function scheduleAI(){
-  clearTimeout(timer);
+  clearTimeout(timer);if(diceSaveBlocked)return;
   const m=store.match;
   if(route!=='match')return;
   const status=document.querySelector('.flow-controls [role="status"]');if(status&&m?.status==='active')status.textContent=flowStatus(m);
@@ -404,6 +408,7 @@ document.addEventListener('click',event=>{
   if(a==='decision')return send({type:'decision',player:p,value:target.dataset.value});
   if(a==='point'||a==='random-point')return send({type:'point',player:p,value:a==='point'?Number(target.dataset.value):POINT_NUMBERS[randomInt(POINT_NUMBERS.length)]});
   if(a==='rps')return send({type:'rps',player:p,value:target.dataset.value});
+  if(a==='dice-keep'||a==='dice-reroll')return send({type:a,player:p});
   if(a==='attack'){
     const skill=Number(target.dataset.skill);
     if(CARD[m.battle.cards[p]].skills[skill].effect==='predict'&&!m.battle.prediction?.[p]){
@@ -446,3 +451,9 @@ if(sessionUpdated||!hadSavedSession)save();
 render();
 if(store.tutorial.status==='welcome')welcomeTutorial();
 else maybeOpenEasterEgg();
+
+function diceTurn(m){
+  const pending=m.battle.dicePending,p=pending.player,keep=previewSkill(m.battle,p,pending.skill,pending.first),range=previewSkill(m.battle,p,pending.skill);
+  const controls=p===0&&m.controls[p]==='human'?`<div class="skills">${btn(`保留 ${pending.first} 点 · 实际伤害 ${keep.damage}${keep.lethal?' · 可击败对方':''}`,'dice-keep')}${btn(`重掷一次 · 伤害 ${range.minDamage}～${range.maxDamage}`,'dice-reroll','ghost')}</div>`:`<p>${name(p)}正在决定保留或重掷。</p>`;
+  return `${battleBoard(m)}<section class="panel"><div class="eyebrow">掷金碰运 · 同一次进攻</div><h3>首掷 ${pending.first} 点</h3><div class="dice-face" aria-label="当前骰点${pending.first}">${['','⚀','⚁','⚂','⚃','⚄','⚅'][pending.first]}</div><p>保留将造成 <b>${keep.damage}</b> 实际直接伤害${keep.lethal?'，可以击败对方':''}。</p><p>对方最终HP：${m.battle.hp[1-p]} → ${keep.targetHp} · 自己最终HP：${m.battle.hp[p]} → ${keep.ownHp}</p>${keep.selfDefeat?'<p class="skill-notice risk">保留后行动末会因持续伤害归零。</p>':''}<p>重掷1～6等概率，必须接受新结果，可能比现在更低。当前尚未扣血或消耗状态；确定最终结果后统一结算。</p>${controls}</section>`;
+}

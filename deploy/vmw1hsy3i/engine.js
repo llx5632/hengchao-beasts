@@ -1,6 +1,6 @@
 import { CARD, TWIN_PARTNERS, BEATS, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
 import { hardPointAction, hardBattleAction } from './ai.js';
-import { resolveCombatAction, clearCombatStatuses, combatStatusValue, applyRpsLoss, battleForViewer, skillAvailable, battleActions, twinDamageMultiplier } from './combat.js';
+import { resolveCombatAction, clearCombatStatuses, combatStatusValue, applyRpsLoss, battleForViewer, skillAvailable, battleActions, twinDamageMultiplier, combatOutcomes, expectedCombatScore, immediateCombatScore, simpleDiceChoice } from './combat.js';
 
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 export const randomInt = (max, rng = Math.random) => Math.min(max - 1, Math.floor(rng() * max));
@@ -26,7 +26,7 @@ export function expectedPlayers(m) {
   if (m.phase === 'lineup-reveal') return [0,1].filter(p => !m.lineupReady[p]);
   const key = {select:'selections',between:'decisions',point:'picks',rps:'rps'}[m.phase];
   if (key) return [0,1].filter(p => m[key][p] === null);
-  return m.phase === 'battle-action' ? [m.battle.actor] : [];
+  return m.phase === 'dice-choice' ? [m.battle.dicePending.player] : m.phase === 'battle-action' ? [m.battle.actor] : [];
 }
 const log = (m,text) => m.history.push(text);
 const playerName = (m,p) => m.playerNames?.[p] ?? `探索者 ${p === 0 ? 'A' : 'B'}`;
@@ -122,7 +122,7 @@ export function dispatch(match,action,rng=Math.random) {
   check([0,1].includes(p),'未知玩家');
   if (action.type === 'surrender') {
     check(m.mode === 'battle' && m.battle,'战斗亮牌后方可主动投降');
-    m.battle.last=null;m.battle.actor=null;m.rps=[null,null];
+    m.battle.last=null;m.battle.dicePending=null;m.battle.actor=null;m.rps=[null,null];
     transfer(m,p,activeBattleInstance(m,p).id,'战斗投降'); finish(m,1-p,`${playerName(m,p)} 主动投降，失去当前出战卡`); return m;
   }
   check(expectedPlayers(m).includes(p),'这位玩家当前不能提交或已经提交');
@@ -172,7 +172,21 @@ export function dispatch(match,action,rng=Math.random) {
         if(m.battle.wind[loser]>before)log(m,`${CARD[m.battle.cards[loser]].name}猜拳落败，风压积至${m.battle.wind[loser]}层，下次进攻＋${m.battle.wind[loser]*25}`);
       }
     }
-  } else if (['attack','retreat'].includes(action.type)) battleAction(m,action);
+  } else if(['dice-keep','dice-reroll'].includes(action.type)){
+    check(m.phase==='dice-choice'&&m.battle.dicePending?.player===p,'当前没有待决定的骰点');
+    const pending=m.battle.dicePending,rerolled=action.type==='dice-reroll',die=rerolled?randomInt(6,rng)+1:pending.first;
+    m.battle.lastDice={player:p,skill:pending.skill,first:pending.first,second:rerolled?die:null,final:die,rerolled,settled:true};
+    m.battle.dicePending=null;m.phase='battle-action';
+    battleAction(m,{type:'attack',player:p,skill:pending.skill,die});
+    const prefix=rerolled?`首掷${pending.first}，重掷${die}并接受新结果；`:`保留骰点${die}；`;
+    m.battle.last.text=prefix+m.battle.last.text;log(m,prefix);
+  } else if (['attack','retreat'].includes(action.type)){
+    if(action.type==='attack'&&m.phase==='battle-action'&&CARD[m.battle.cards[p]].skills[action.skill]?.effect==='dice'){
+      check(Number.isInteger(action.skill)&&action.skill>=0&&action.skill<2,'请选择一个技能');
+      m.battle.dicePending={player:p,skill:action.skill,first:randomInt(6,rng)+1,rerollsLeft:1};
+      m.battle.last=null;m.phase='dice-choice';log(m,`${playerName(m,p)}使用掷金碰运，首掷${m.battle.dicePending.first}，等待保留或重掷一次。`);
+    }else battleAction(m,action);
+  }
   else throw new Error('未知操作');
   return m;
 }
@@ -182,21 +196,23 @@ export function aiAction(m,p,rng=Math.random) {
   if (m.phase === 'between') return {type:'decision',player:p,value:'continue'};
   if (m.phase === 'point') return m.difficulty==='hard'?hardPointAction(m,p,rng):{type:'point',player:p,value:POINT_NUMBERS[randomInt(POINT_NUMBERS.length,rng)]};
   if (m.phase === 'rps') return {type:'rps',player:p,value:['rock','paper','scissors'][randomInt(3,rng)]};
+  if(m.phase==='dice-choice')return m.difficulty==='hard'?hardBattleAction(m,p,rng):{type:simpleDiceChoice(m.battle,p),player:p};
   if (m.phase === 'battle-action') {
     if(m.difficulty==='hard')return hardBattleAction(m,p,rng);
     const own=CARD[m.battle.cards[p]], other=CARD[m.battle.cards[1-p]], b=battleForViewer(m.battle,p);
     const prediction=b.remaining[1-p]<=1&&b.hp[1-p]<=Math.max(...own.skills.map(s=>s.damage))?'retreat':'attack';
     const attack=skill=>({type:'attack',player:p,skill,...(own.skills[skill].effect==='predict'&&!b.prediction?.[p]?{prediction}:{})});
-    const projected=own.skills.map((s,skill)=>skillAvailable(b,p,skill)?resolveCombatAction(b,p,attack(skill)):null);
-    const lethal=projected.findIndex(r => r?.finished&&r.winner===p);
+    const options=own.skills.map((s,skill)=>skillAvailable(b,p,skill)?combatOutcomes(b,p,attack(skill)):[]);
+    const projected=options.map(rs=>rs[0]??null);
+    const lethal=options.findIndex(rs=>rs.length&&rs.every(r=>r.finished&&r.winner===p));
     if (lethal >= 0) return attack(lethal);
     const retreat=resolveCombatAction(b,p,{type:'retreat'});
-    if ((!retreat.finished||retreat.winner!==1-p)&&b.hp[p] <= Math.max(...battleActions(b,1-p).filter(a=>a.type==='attack').map(a=>b.hp[p]-resolveCombatAction(b,1-p,a).state.hp[p])) && b.remaining[p] <= 2) return {type:'retreat',player:p};
-    const survives=projected.some(r=>r&&(!r.finished||r.winner===p));
+    if ((!retreat.finished||retreat.winner!==1-p)&&b.hp[p] <= Math.max(...battleActions(b,1-p).filter(a=>a.type==='attack').flatMap(a=>combatOutcomes(b,1-p,a).map(r=>b.hp[p]-r.state.hp[p]))) && b.remaining[p] <= 2) return {type:'retreat',player:p};
+    const survives=options.some(rs=>rs.some(r=>!r.finished||r.winner===p));
     if(!survives&&(!retreat.finished||retreat.winner===null))return {type:'retreat',player:p};
     let skill=0,best=-Infinity;
     own.skills.forEach((s,i)=>{const r=projected[i];if(!r)return;const next=r.state;
-      const score=r.finished&&r.winner===1-p?-10000:b.hp[1-p]-next.hp[1-p]+next.hp[p]-b.hp[p]+combatStatusValue(next,p)-combatStatusValue(b,p)+(s.effect==='twin-shift'?(twinDamageMultiplier(CARD[next.cards[p]].skills[0],other.element)-twinDamageMultiplier(own.skills[0],other.element))*own.skills[0].damage:0)+(s.effect==='delay'&&b.remaining[1-p]<=2?16:0)-(next.remaining[p]-b.remaining[p])*2;
+      const score=s.effect==='dice'?expectedCombatScore(b,p,attack(i),r=>immediateCombatScore(b,p,r)):r.finished&&r.winner===1-p?-10000:b.hp[1-p]-next.hp[1-p]+next.hp[p]-b.hp[p]+combatStatusValue(next,p)-combatStatusValue(b,p)+(s.effect==='twin-shift'?(twinDamageMultiplier(CARD[next.cards[p]].skills[0],other.element)-twinDamageMultiplier(own.skills[0],other.element))*own.skills[0].damage:0)+(s.effect==='delay'&&b.remaining[1-p]<=2?16:0)-(next.remaining[p]-b.remaining[p])*2;
       if(score>best){best=score;skill=i;}
     });
     return attack(skill);

@@ -11,6 +11,7 @@ export function freshSession() {
     rulesRevision: RULES_REVISION,
     specialCardsGranted: true,
     twinCardsGranted: true,
+    goldToadGranted: true,
     difficulty: 'easy',
     autoAdvance: true,
     battleCompact: true,
@@ -44,6 +45,11 @@ export function upgradeSession(session) {
       if(session.match?.status==='active')session.match.inventories[player].push({...card});
     }});
     session.twinCardsGranted=true;changed=true;
+  }
+  if(!session.goldToadGranted){
+    const existing=new Set(session.players.flatMap(p=>p.cards.map(c=>c.id)));
+    session.players.forEach((p,player)=>{const id=`release-gold-toad-${player}`;if(existing.has(id))return;const card={id,cardId:'koujinchan'};p.cards.push(card);if(session.match?.status==='active')session.match.inventories[player].push({...card});});
+    session.goldToadGranted=true;changed=true;
   }
   if(session.rulesRevision!==RULES_REVISION){
     if(session.match){session.match=null;session.releaseNotice='技能规则已更新，旧对局已清理；收藏及已结算的赢失卡结果保留。';}
