@@ -100,6 +100,8 @@ export async function publish({
   run(process.execPath, ['--test', ...listTests()], { cwd: root, env });
   log('\n[3/5] 打包最新版本…');
   run(process.execPath, ['scripts/build-deploy.mjs'], { cwd: root, env });
+  run(process.execPath, ['scripts/check-deploy.mjs'], { cwd: root, env });
+  run(process.execPath, ['scripts/check-clean-checkout.mjs'], { cwd: root, env });
   log('\n[4/5] 提交本地更新…');
   localGit('add', '--all', '--', ...publishPaths);
   if (localGit('diff', '--cached', '--name-only')) {

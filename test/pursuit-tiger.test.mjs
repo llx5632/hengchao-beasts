@@ -122,8 +122,6 @@ for(const difficulty of ['easy','hard'])test(`${difficulty} AI双方完整中性
   while(m.status==='active'&&steps++<150){const p=expectedPlayers(m)[0];m=dispatch(m,p===undefined?{type:'advance'}:aiAction(m,p,rng),rng);}
   assert.equal(m.status,'finished');assert.equal(m.inventories.flat().length,2);
 });
-test('本地卡面文件及网页图鉴包含截径棘虎，PNG尺寸为1024×1536',async()=>{
-  const png=await readFile(new URL(`../../卡牌/${CARD.jiejing.art}`,import.meta.url));assert.equal(png.toString('hex',0,8),'89504e470d0a1a0a');
-  assert.equal(png.readUInt32BE(16),1024);assert.equal(png.readUInt32BE(20),1536);
+test('网页图鉴包含截径棘虎，规则回归仅依赖仓库内文件',async()=>{
   const catalog=await readFile(new URL('../dist/cards.html',import.meta.url),'utf8');assert.match(catalog,/截径棘虎完整卡面/);
 });

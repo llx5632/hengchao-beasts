@@ -16,6 +16,8 @@
 Set-Location D:\GDD\web-game
 npm.cmd test
 npm.cmd run build
+npm.cmd run check:deploy
+npm.cmd run check:clean
 git remote add origin https://github.com/llx5632/hengchao-beasts.git
 git add .github deploy dist scripts test package.json README.md DEPLOY.md .gitignore
 git commit -m "Prepare current game for GitHub Pages"
@@ -42,6 +44,8 @@ git push -u origin main
 Set-Location D:\GDD\web-game
 npm.cmd test
 npm.cmd run build
+npm.cmd run check:deploy
+npm.cmd run check:clean
 git add .github deploy dist scripts test package.json README.md DEPLOY.md .gitignore
 git commit -m "Update game"
 git push
@@ -49,7 +53,11 @@ git push
 
 `deploy/` 是随代码提交的预构建产物；Actions 检查规则后直接发布它。每次改动后必须重新运行 build。使用一键发布时，卡面修改后在开头输入 `1`；手动发布时先执行 `python scripts/compress-art.py 1024 85`（需要 Pillow），再 build。`deploy-art/` 为本机中间产物，不入库；现有卡图已包含在 `deploy/`。
 
-构建会将最新脚本、样式和当前卡面映射中的全部卡图打包到同一版本目录（当前22种，状态见[主文档当前状态](../衡潮群岛项目文档.md#current-status)），并使用相对路径，兼容 `/hengchao-beasts/`。不要直接上传 `dist/`，它的本机卡图路由依赖预览服务。
+2026-11-04起，规则测试与资产验收分开：`npm.cmd test`只依赖仓库内文件；`npm.cmd run check:art`在本机检查GDD原始PNG（可附卡牌ID，如`npm.cmd run check:art -- jiejing`），不在CI运行。构建后须依次执行`npm.cmd run check:deploy`和`npm.cmd run check:clean`；后者仅复制发布范围内文件到临时隔离目录，重跑全量测试及部署检查，不携带GDD原图、deploy-art或QA资料，结束后清理临时目录。一键发布已自动串联这两项，任何失败均在提交、推送前停止；GitHub Actions也会在上传前检查已提交部署资源。
+
+手动发布同样必须在build后、git add前执行这两项。新增检查不能读取`../卡牌`等仓库外路径，也不能以跳过测试解决CI环境缺文件；先区分本地创作资料与真正需要部署的资产。
+
+构建会将最新脚本、样式和当前卡面映射中的全部卡图打包到同一版本目录（当前23种，状态见[主文档当前状态](../衡潮群岛项目文档.md#current-status)），并使用相对路径，兼容 `/hengchao-beasts/`。不要直接上传 `dist/`，它的本机卡图路由依赖预览服务。
 
 GitHub Pages 托管玩家对 AI 的静态游戏。收藏、对局仍保存于各自浏览器；此发布方式不提供账号或联网对战。
 

@@ -8,7 +8,7 @@ function harness({ fail = '', behind = 0, staged = '', title = '更新卡牌 "�
   let asked = 0;
   const run = (program, args, options) => {
     calls.push({ program, args, options });
-    const action = args.find(arg => ['fetch', 'push', 'commit', 'add', '--test', 'scripts/build-deploy.mjs', 'scripts/compress-art.py', 'from PIL import Image'].includes(arg));
+    const action = args.find(arg => ['fetch', 'push', 'commit', 'add', '--test', 'scripts/build-deploy.mjs', 'scripts/check-deploy.mjs', 'scripts/check-clean-checkout.mjs', 'scripts/compress-art.py', 'from PIL import Image'].includes(arg));
     if (action) events.push(action);
     if (action === fail) throw new Error(`Simulated ${fail} failure`);
     if (args[0] === 'branch') return 'main';
@@ -77,7 +77,7 @@ test('发布使用同一代理获取和推送，标题作为完整参数传递�
   assert(!h.calls.find(call => call.args[0] === 'add').args.includes('qa'));
 });
 
-for (const failure of ['fetch', '--test', 'scripts/build-deploy.mjs', 'commit']) {
+for (const failure of ['fetch', '--test', 'scripts/build-deploy.mjs', 'scripts/check-deploy.mjs', 'scripts/check-clean-checkout.mjs', 'commit']) {
   test(`${failure} 失败时停止，不推送；检查或构建失败也不暂存`, async () => {
     const h = harness({ fail: failure });
     await assert.rejects(h.execute(), /Simulated/);
@@ -90,6 +90,12 @@ test('远程领先时停止，不构建、不提交、不自动合并', async ()
   const h = harness({ behind: 1 });
   await assert.rejects(h.execute(), /远程 main/);
   assert(!h.calls.some(call => call.args.includes('scripts/build-deploy.mjs') || call.args.includes('commit') || call.args.includes('push')));
+});
+
+test('构建后依次校验部署与干净检出，二者通过才允许提交和推送',async()=>{
+  const h=harness();await h.execute();
+  const sequence=['scripts/build-deploy.mjs','scripts/check-deploy.mjs','scripts/check-clean-checkout.mjs','add','commit','push'];
+  assert.deepEqual(h.events.filter(e=>sequence.includes(e)),sequence);
 });
 
 test('空标题取消，没有网络操作或文件变更', async () => {

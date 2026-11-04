@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node server.mjs",
     "build": "node scripts/build-deploy.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "check:art": "node scripts/check-local-art.mjs",
+    "check:deploy": "node scripts/check-deploy.mjs",
+    "check:clean": "node scripts/check-clean-checkout.mjs"
   }
 }

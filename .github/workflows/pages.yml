@@ -25,6 +25,8 @@ jobs:
         uses: actions/checkout@v6
       - name: Check game rules
         run: node --test test/*.test.mjs
+      - name: Check committed deploy assets
+        run: node scripts/check-deploy.mjs
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload prebuilt game
