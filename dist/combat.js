@@ -1,6 +1,6 @@
 import { CARD, TWIN_PARTNERS } from './data.js';
 export function battleEndedBySurrender(m){return Boolean(m.mode==='battle'&&m.status==='finished'&&m.transfers?.some(t=>t.reason==='战斗投降'));}
-const empty=()=>({charge:[false,false],shield:[0,0],echo:[0,0],burn:[0,0],mark:[null,null],weaken:[0,0],root:[0,0],seal:[false,false],debt:[0,0],wind:[-1,-1],prediction:[null,null],foresight:[0,0],deathWard:[0,0],deathUsed:[false,false],deathPower:[0,0]});
+const empty=()=>({charge:[false,false],shield:[0,0],echo:[0,0],burn:[0,0],mark:[null,null],weaken:[0,0],root:[0,0],seal:[false,false],debt:[0,0],wind:[-1,-1],prediction:[null,null],foresight:[0,0],deathWard:[0,0],deathUsed:[false,false],deathPower:[0,0],reviveWard:[false,false],reviveUsed:[false,false]});
 // One invocation per resolved, non-tied RPS. Preview/AI use the same transition.
 export function applyRpsLoss(battle,loser){
   const wind=[...(battle.wind??[-1,-1])];
@@ -17,7 +17,17 @@ export function canTwinShift(battle,player){
   const partner=TWIN_PARTNERS[battle.cards[player]], pair=battle.twinPairs?.[player];
   return Boolean(partner&&pair?.[partner]?.cardId===partner&&pair?.[battle.cards[player]]?.cardId===battle.cards[player]);
 }
-export function skillAvailable(battle,player,skill){return CARD[battle.cards[player]].skills[skill]?.effect!=='twin-shift'||canTwinShift(battle,player);}
+export function skillUnavailableReason(battle,player,index){
+  const card=CARD[battle.cards[player]],skill=card.skills[index];
+  if(!skill)return '请选择有效技能';
+  if(skill.effect==='twin-shift'&&!canTwinShift(battle,player))return '缺少已绑定的双生伙伴，无法使用双生相转';
+  if(skill.effect==='revive-ward'){
+    if(battle.reviveUsed?.[player]||battle.reviveWard?.[player])return '本场回生伏印已施放，不能重复使用';
+    if(battle.hp[player]<=0||battle.hp[player]*2>=card.hp)return '当前HP须严格低于半血（1～59），才能施放回生伏印';
+  }
+  return '';
+}
+export function skillAvailable(battle,player,skill){return !skillUnavailableReason(battle,player,skill);}
 export function twinDamageMultiplier(skill,element){
   if(skill.effect==='twin-day')return element==='草'?2:element==='火'?.5:1;
   if(skill.effect==='twin-night')return element==='火'?2:element==='草'?.5:1;
@@ -32,11 +42,12 @@ export function clearCombatStatuses(s){Object.assign(s,empty());}
 export function combatStatusKey(s){return JSON.stringify([s.cards,s.twinPairs??null,...Object.entries(empty()).map(([k,v])=>s[k]??v)]);}
 export function combatStatusValue(s,p){
   const ward=i=>{const target=1-i,raw=Math.max(0,(s.deathPower?.[i]??0)-(s.shield?.[target]??0)),deferred=s.seal?.[target]?Math.min(30,Math.floor(raw/2)):0;return s.deathWard?.[i]&&s.hp[target]<=raw-deferred+(raw-deferred>0?(s.debt?.[target]??0):0)?15*s.deathWard[i]:0;};
-  const v=i=>ward(i)+(s.charge?.[i]?20:0)+(s.shield?.[i]??0)*.7+Math.min(30,Math.floor((s.echo?.[i]??0)/2))*.6+(s.root?.[i]??0)*14+(s.seal?.[i]?15:0)-(s.debt?.[i]??0)-(s.burn?.[i]??0)*10-(s.weaken?.[i]??0)*6-(s.mark?.[i]===1-i?18:0)+((s.wind?.[i]??-1)<0?0:[18.75,37.5,50][s.wind[i]])+(s.prediction?.[i]?23:0)+(s.foresight?.[i]??0);
+  const v=i=>ward(i)+(s.reviveWard?.[i]?Math.floor(CARD[s.cards[i]].hp/2)*.8:0)+(s.charge?.[i]?20:0)+(s.shield?.[i]??0)*.7+Math.min(30,Math.floor((s.echo?.[i]??0)/2))*.6+(s.root?.[i]??0)*14+(s.seal?.[i]?15:0)-(s.debt?.[i]??0)-(s.burn?.[i]??0)*10-(s.weaken?.[i]??0)*6-(s.mark?.[i]===1-i?18:0)+((s.wind?.[i]??-1)<0?0:[18.75,37.5,50][s.wind[i]])+(s.prediction?.[i]?23:0)+(s.foresight?.[i]??0);
   return v(p)-v(1-p);
 }
 export function combatStatuses(s,p,viewer=0){
   const c=CARD[s.cards[p]],out=[],other=1-p,add=(id,label,active,detail)=>out.push({id,label,active,detail});
+  if(c.id==='cangquanyuan'||s.reviveWard?.[p])add('revive-ward',s.reviveWard?.[p]?'回生伏印：待触发':s.reviveUsed?.[p]?'回生伏印：本场已用':s.hp[p]*2<c.hp?'回生伏印：可施放':'回生伏印：未到半血以下',!!s.reviveWard?.[p],'来源：回生伏印。HP严格低于半血时每战仅可施放一次；先造成15基础伤害，战斗继续则挂印，覆盖当次行动末，持续到触发或战斗结束。有效印使致命伤归零（含恰好归零）后、最终胜负前，HP直接恢复至最大HP的50%，无论溢出多少均不再扣除该次溢出。保留其他状态，不补行动；同批持续伤害双方归零仍平局，不回生。投降、属性直胜和成功撤退不触发。');
   if(c.id==='jinnangying'||s.deathWard?.[p])add('death-ward',s.deathWard?.[p]?`伏印 · 余${s.deathWard[p]}次双方行动 · 殒爆${s.deathPower[p]}`:s.deathUsed?.[p]?'伏印：本局挂印已用':'伏印：本局尚可挂印1次',!!s.deathWard?.[p],'来源：殒爆伏印。本局仅取得一次，不刷新、不返还。施放即生效并覆盖当次行动末，当次不扣次数；随后2次任一方进攻或未成功撤退内HP归零，先殒爆60再判胜负。末次先检查死亡后到期；猜拳、展示与等待不计时。殒爆可被护盾／封伤抵挡，不受攻击增减影响。双方归零平局保卡，对方存活自己仍败。投降、属性直胜、成功撤退不触发。');
   if(TWIN_PARTNERS[c.id]){const partner=CARD[TWIN_PARTNERS[c.id]],ready=canTwinShift(s,p);add('twin',ready?`双生：可转为${partner.name}`:`双生：缺少${partner.name}`,ready,`伙伴：${partner.name}。${ready?'已绑定实际伙伴谱印；使用双生相转先造成10基础伤害，未直接致胜则转换，占一次进攻。':'未绑定伙伴，双生相转不可用。'}转换保留HP、伤势、剩余撤退、全部状态及来源计数；战败或投降只失去当前形态对应的实际卡牌。双方同次持续伤害归零仍平局保卡。`);}
   if(c.id==='xuanjiao')add('wind',(s.wind?.[p]??-1)<0?'逆风：未蓄势':s.wind[p]===0?'逆风蓄势0层':`风压${s.wind[p]}层 · 下次进攻＋${s.wind[p]*25}`,(s.wind?.[p]??-1)>=0,'来源：逆风蓄势。进入0层后每次猜拳落败积1层，每层＋25，最多2层。平手不积层；下一次任一技能进攻消耗整个蓄势，包括0层。再次使用逆风蓄势先释放旧层，再重新进入0层。未成功撤退保留，结束清空。');
@@ -59,9 +70,9 @@ export function combatStatuses(s,p,viewer=0){
 // Preview, real play and AI share an immutable resolver.
 export function resolveCombatAction(battle,player,action){
   const state={...battle,dicePending:null,cards:[...battle.cards],hp:[...battle.hp],remaining:[...battle.remaining],...(battle.instances?{instances:[...battle.instances]}:{})};
-  if(action.type==='attack'&&!skillAvailable(battle,player,action.skill))throw new Error('缺少已绑定的双生伙伴，无法使用双生相转');
+  if(action.type==='attack'&&!skillAvailable(battle,player,action.skill))throw new Error(skillUnavailableReason(battle,player,action.skill));
   for(const [k,v] of Object.entries(empty()))state[k]=[...(battle[k]??v)];
-  const other=1-player,startWard=[...state.deathWard],startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],waiting=state.prediction[other],events=[],effects={healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0],deathDamage:[0,0],deathTriggered:[false,false]};
+  const other=1-player,startWard=[...state.deathWard],startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],waiting=state.prediction[other],events=[],effects={healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0],deathDamage:[0,0],deathTriggered:[false,false],reviveTriggered:[false,false],reviveHealing:[0,0],directEnded:false};
   const label=p=>CARD[state.cards[p]].name;let text='',breakdown=null;
   // Each positive damage event consumes existing debt; newly deferred damage waits
   // for another event, including a later burn event in this same action.
@@ -88,19 +99,29 @@ export function resolveCombatAction(battle,player,action){
     }
     return {state,finished,winner,text:text+(events.length?'；'+events.join('；'):''),events,effects,breakdown};
   }
-  // One death checkpoint after direct damage, or after the entire simultaneous DoT batch.
-  // No recursive attacks, no post-lethal DoT, and no card transfers until this finishes.
+  function revive(p){
+    if(state.hp[p]!==0||!state.reviveWard[p])return false;
+    state.reviveWard[p]=false;state.reviveUsed[p]=true;
+    state.hp[p]=Math.floor(CARD[state.cards[p]].hp/2);
+    effects.reviveTriggered[p]=true;effects.reviveHealing[p]=state.hp[p];
+    events.push(`${label(p)}回生伏印触发，HP恢复至最大HP的50%（${state.hp[p]}），致命伤溢出不再扣除`);
+    return true;
+  }
+  // DoT is checked only after the complete simultaneous batch; double zero stays a draw.
+  // A successful revival resumes the original action, never replays its damage.
   function deathOutcome(){
     const dead=state.hp.map(h=>h===0);
     if(!dead.some(Boolean))return null;
     if(dead.every(Boolean))return outcome(true,null);
     const fallen=dead[0]?0:1,target=1-fallen;
+    if(revive(fallen))return null;
     if(state.deathWard[fallen]>0){
       const power=state.deathPower[fallen],blocked=Math.min(power,state.shield[target]);
       state.deathWard[fallen]=0;effects.deathTriggered[fallen]=true;
       if(state.shield[target]){state.shield[target]=0;events.push(`${label(target)}的护盾抵消殒爆${blocked}伤害，已消耗`);}
       effects.deathDamage[target]=receiveDamage(target,Math.max(0,power-blocked),true);
       events.push(`${label(fallen)}伏印触发，殒爆${power}，${label(target)}实际直接受伤${effects.deathDamage[target]}`);
+      revive(target);
     }
     return outcome(true,state.hp[target]===0?null:target);
   }
@@ -129,6 +150,7 @@ export function resolveCombatAction(battle,player,action){
     return state.remaining[player]===0?outcome(true,null):actionEnd();
   }
   const skill=CARD[state.cards[player]].skills[action.skill];let bonus=0;
+  if(skill.effect==='revive-ward')state.reviveUsed[player]=true;
   const pursuit=pursuitBonus(state,player,skill);
   if(pursuit){bonus+=pursuit;events.push(`${label(other)}剩余撤退为1，封路追击伤害＋${pursuit}`);}
   if(state.wind[player]>=0){bonus+=state.wind[player]*25;events.push(`${label(player)}释放逆风蓄势${state.wind[player]}层，伤害＋${state.wind[player]*25}，旧蓄势结束`);state.wind[player]=-1;}
@@ -152,7 +174,7 @@ export function resolveCombatAction(battle,player,action){
   const damage=receiveDamage(other,Math.max(0,afterReduction-blocked),true);
   const directDeferred=effects.deferred[other],directSettled=effects.settled[other];
   breakdown={base:skill.damage,die,bonus,raw,elementMultiplier,multiplier,afterReduction,blocked,damage,directDeferred,directSettled,directLethal:state.hp[other]===0};text=`${skill.name}造成 ${damage} 伤害（直接）`;
-  if(state.hp[other]===0)return deathOutcome();
+  if(state.hp[other]===0){const death=deathOutcome();if(death){effects.directEnded=true;return death;}}
   if(CARD[state.cards[other]].id==='mingnang'&&damage>0){const old=state.echo[other];state.echo[other]=damage;events.push(`${label(other)}回响记录${old?'由'+old+'更新为':'为'}${damage}`);}
   if(skill.effect==='twin-shift'){
     const old=CARD[state.cards[player]].name,partner=TWIN_PARTNERS[state.cards[player]];
@@ -187,6 +209,7 @@ export function resolveCombatAction(battle,player,action){
     if(state.deathUsed[player])events.push(`${label(player)}本局挂印资格已用，只造成基础伤害，不刷新伏印`);
     else{state.deathUsed[player]=true;state.deathWard[player]=2;state.deathPower[player]=skill.amount;events.push(`${label(player)}获得伏印：当次行动末立即有效，随后2次双方行动，殒爆${skill.amount}；本局挂印资格已用`);}
   }
+  if(skill.effect==='revive-ward'){state.reviveWard[player]=true;events.push(`${label(player)}获得回生伏印：待触发，立即生效；本场施放资格已用`);}
   return actionEnd();
 }
 export function previewSkill(battle,player,skillIndex,die=null){
@@ -196,7 +219,7 @@ export function previewSkill(battle,player,skillIndex,die=null){
   }
   const other=1-player,skill=CARD[battle.cards[player]].skills[skillIndex],r=resolveCombatAction(battleForViewer(battle,player),player,{type:'attack',skill:skillIndex,...(die===null?{}:{die})});
   const directLethal=r.breakdown.directLethal;
-  return {transformed:r.effects.transformed??null,deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,deathDamage:r.effects.deathDamage,deathTriggered:r.effects.deathTriggered,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:directLethal&&['heal','delay','charge','shield','burn','mark','weaken','root','seal','wind','predict','twin-shift','death-ward'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
+  return {reviveTriggered:r.effects.reviveTriggered,reviveHealing:r.effects.reviveHealing,transformed:r.effects.transformed??null,deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,deathDamage:r.effects.deathDamage,deathTriggered:r.effects.deathTriggered,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:r.effects.directEnded&&['revive-ward','heal','delay','charge','shield','burn','mark','weaken','root','seal','wind','predict','twin-shift','death-ward'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
 }
 
 export function combatOutcomes(battle,player,action){

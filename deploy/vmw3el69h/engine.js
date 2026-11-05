@@ -1,6 +1,6 @@
 import { CARD, TWIN_PARTNERS, BEATS, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
 import { hardPointAction, hardBattleAction } from './ai.js';
-import { resolveCombatAction, clearCombatStatuses, combatStatusValue, applyRpsLoss, battleForViewer, skillAvailable, battleActions, twinDamageMultiplier, combatOutcomes, expectedCombatScore, immediateCombatScore, simpleDiceChoice } from './combat.js';
+import { resolveCombatAction, clearCombatStatuses, combatStatusValue, applyRpsLoss, battleForViewer, skillAvailable, skillUnavailableReason, battleActions, twinDamageMultiplier, combatOutcomes, expectedCombatScore, immediateCombatScore, simpleDiceChoice } from './combat.js';
 
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 export const randomInt = (max, rng = Math.random) => Math.min(max - 1, Math.floor(rng() * max));
@@ -93,7 +93,7 @@ function battleAction(m,action) {
   if(action.type==='attack')check(Number.isInteger(action.skill) && action.skill >= 0 && action.skill < 2,'请选择一个技能');
   if(action.type==='attack'&&CARD[b.cards[p]].skills[action.skill].effect==='predict'&&!b.prediction?.[p])check(['attack','retreat'].includes(action.prediction),'请先秘密预判进攻或撤退');
   if(action.type==='attack'){
-    check(skillAvailable(b,p,action.skill),'缺少已绑定的双生伙伴，无法使用双生相转');
+    check(skillAvailable(b,p,action.skill),skillUnavailableReason(b,p,action.skill));
     if(CARD[b.cards[p]].skills[action.skill].effect==='twin-shift')for(const instance of Object.values(b.twinPairs[p]))check(m.inventories[p].some(c=>c.id===instance.id&&c.cardId===instance.cardId),'绑定的双生卡牌不在自己的收藏中');
   }
   const result=resolveCombatAction(b,p,action);

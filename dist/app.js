@@ -4,7 +4,7 @@ import { SAVE_KEY, freshSession, createLocalMatch, upgradeSession } from './sess
 import { DIFFICULTIES, normalizeDifficulty } from './ai.js';
 import { scheduledStep } from './flow.js';
 import { SELECTION_SORTS, selectionCards, selectionSummary } from './selection.js';
-import { previewSkill, battleEndedBySurrender, combatStatuses, resolveCombatAction, battleForViewer, skillAvailable } from './combat.js';
+import { previewSkill, battleEndedBySurrender, combatStatuses, resolveCombatAction, battleForViewer, skillAvailable, skillUnavailableReason } from './combat.js';
 import { selectionDraft, normalizePresets, createPreset, resolvePreset, canLeaveSelection } from './roster.js';
 import { newTutorial, normalizeTutorial, beginTutorialLesson, tutorialAction } from './tutorial.js';
 import { renderTutorial } from './tutorial-ui.js';
@@ -182,7 +182,7 @@ function battleStatusView(b,p){
 }
 function skillButton(battle,p,skill,index){
   if(skill.effect==='dice'){const range=previewSkill(battle,p,index);return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="掷金碰运：可能实际伤害${range.minDamage}至${range.maxDamage}"><em>${range.minDamage}～${range.maxDamage}<small>可能实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-notice">掷出结果后可保留，或重掷一次并接受新结果；全程只算一次进攻。</span>${range.outcomes.some(r=>r.selfDefeat)?'<span class="skill-notice risk">未直接致胜时，行动末持续伤害可能使自己归零。</span>':''}</button>`;}
-  if(!skillAvailable(battle,p,index))return `<button class="skill-button" disabled aria-label="双生相转不可用：缺少伙伴"><em>—</em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-notice">缺少已绑定的${CARD[TWIN_PARTNERS[battle.cards[p]]].name}，无法转换。</span></button>`;
+  if(!skillAvailable(battle,p,index))return `<button class="skill-button" disabled aria-label="${skill.name}不可用：${skillUnavailableReason(battle,p,index)}"><em>—</em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-notice">${skillUnavailableReason(battle,p,index)}</span></button>`;
   const actual=previewSkill(battle,p,index),b=actual.breakdown,notes=[];
   if((battle.wind?.[p]??-1)>=0)notes.push(`本次消耗逆风蓄势${battle.wind[p]}层，伤害＋${battle.wind[p]*25}；0层也结束旧蓄势。`);
   if(battle.foresight?.[p])notes.push('本次消耗预判成功增益，伤害＋30。');
@@ -203,6 +203,8 @@ function skillButton(battle,p,skill,index){
   if(skill.effect==='desperate')notes.push(battle.hp[p]<=60?'绝境已生效。':'当前HP高于60，绝境未生效。');
   if(skill.effect==='pursuit')notes.push(battle.remaining[1-p]===1?'对方剩余撤退为1，本次追击伤害＋40；不阻止成功撤退。':`对方剩余撤退为${battle.remaining[1-p]}，未满足追击条件。`);
   if(skill.effect==='death-ward'&&!actual.effectSkipped)notes.push(battle.deathUsed?.[p]?'本局挂印资格已用，本次只造成基础伤害，不刷新、不补次。':'本局仅挂印1次；当次行动末立即有效，随后2次任一方实际行动内HP归零时殒爆60。护盾与封伤可抵挡；成功撤退、投降和属性直胜不触发。');
+  if(skill.effect==='revive-ward'&&!actual.effectSkipped)notes.push('每战仅施放1次；本次行动末立即有效，之后HP归零时恢复至最大HP的50%，致命伤溢出不再扣除。伏印持续到触发或战斗结束，保留其他状态，不补行动。');
+  for(const q of [0,1])if(actual.reviveTriggered[q])notes.push(`${name(q)}回生伏印触发，HP恢复至最大HP的50%（${actual.reviveHealing[q]}）；最终HP已计入本行动其余应结伤害。`);
   for(const q of [0,1])if(actual.deathTriggered[q])notes.push(`${name(q)}伏印触发；${name(1-q)}殒爆实际直接受伤${actual.deathDamage[1-q]}，最终HP已计入防护及旧伤。`);
   if(skill.effect==='burn'&&!actual.effectSkipped)notes.push(`${battle.burn?.[1-p]?'刷新':'施加'}余烬烙印：之后2次任一方行动结束各受15伤害，不叠加。`);
   if(skill.effect==='mark'&&!actual.effectSkipped)notes.push(battle.mark?.[1-p]===p?'对方已有自己的晶痕，不叠加。':'给对方留下1个晶痕。');
@@ -221,13 +223,14 @@ function skillButton(battle,p,skill,index){
   const afterShield=Math.max(0,b.afterReduction-b.blocked);
   const immediate=afterShield-b.directDeferred;
   const calculation=`基础${b.base}${b.bonus?`＋强化${b.bonus}`:''}${b.elementMultiplier!==1?`×属性倍率${b.elementMultiplier}`:''}${b.multiplier!==1?`→削弱25%后${b.afterReduction}`:''}${b.blocked?`－护盾${b.blocked}`:''}${b.directDeferred?`－暂存${b.directDeferred}`:''}＝${immediate}${actual.damage<immediate?`；实际直接扣血受剩余HP限制为${actual.damage}`:''}${b.directSettled?`；旧伤另扣${b.directSettled}`:''}`;
-  return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='heal'||actual.burnDamage[p]||actual.deathDamage[p]?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
+  return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='heal'||actual.burnDamage[p]||actual.deathDamage[p]||actual.reviveTriggered[p]?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
 }
 function retreatButton(b,p){
   const r=resolveCombatAction(battleForViewer(b,p),p,{type:'retreat'}),burn=r.effects.burnDamage;
   const oldWound=r.effects.settled[p]?` · 再次受伤追加旧伤${r.effects.settled[p]}`:'';
+  const revival=r.effects.reviveTriggered.map((v,q)=>v?` · ${name(q)}回生至${r.effects.reviveHealing[q]}HP，最终HP${r.state.hp[q]}`:'').join('');
   const note=r.finished?(r.winner===null?' · 本次平局':r.winner===p?' · 行动末伤害使对方归零，本次获胜':r.effects.deathTriggered.some(Boolean)?' · 警告：死亡与殒爆结算后自己仍败':' · 警告：行动后持续伤害会使自己归零判负'):burn.some(Boolean)?` · 烙印：${burn.map((n,q)=>n?`${name(q)}－${n}HP`:'').filter(Boolean).join('，')}`:'';
-  return btn(`选择撤退 · ${b.remaining[p]} → ${r.state.remaining[p]}${note}${oldWound}${b.prediction?.[1-p]?' · 行动后揭晓对方预判':''}`,'retreat','ghost');
+  return btn(`选择撤退 · ${b.remaining[p]} → ${r.state.remaining[p]}${note}${oldWound}${revival}${b.prediction?.[1-p]?' · 行动后揭晓对方预判':''}`,'retreat','ghost');
 }
 function privateTurn(m,p){
   if(m.phase==='select'){
