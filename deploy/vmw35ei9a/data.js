@@ -24,6 +24,7 @@ const rows = [
   ['yelan','夜岚狐','风','中阶',100,2,.65,16,'与昼岚狐同窝而生，以伏风巡林，岚纹遥相呼应。',hit('伏岚掠袭',30,'twin-night'),hit('双生相转',10,'twin-shift')],
   ['koujinchan','叩金蟾','岩','中阶',110,3,.55,32,'喉珠叩响矿壁，金斑随回声明灭。',hit('掷金碰运',10,'dice'),hit('沉身撞击',40)],
   ['jiejing','截径棘虎','草','高阶',145,3,1.65,230,'掌缘感须追踪足震，棘爪循着退路落下。',hit('棘爪横扫',50),hit('封路追击',40,'pursuit',40)],
+  ['jinnangying','烬囊萤','火','低阶',60,2,.18,.8,'烬囊微光劝退来敌，囊阀闭合时勿再逼近。',hit('灼翅扑击',25),hit('殒爆伏印',5,'death-ward',60)],
 ];
 export const TWIN_PARTNERS = Object.freeze({zhoulan:'yelan',yelan:'zhoulan'});
 export const BEATS = Object.freeze({ 火:'草', 草:'岩', 岩:'风', 风:'水', 水:'火' });
@@ -42,7 +43,7 @@ export const METRICS = Object.freeze([
 ]);
 // Sum 0 is the reveal-and-repick draw; positive sums cycle through items 1..6.
 export const pointMetricIndex = sum => sum===0 ? null : (sum + METRICS.length - 1) % METRICS.length;
-export const skillText = s => `${s.damage} 伤害${({pursuit:' · 对方剩余撤退点数为1时，伤害＋40',dice:' · 掷1枚六面骰，伤害乘点数；可重掷1次，须接受新结果','twin-day':' · 对草伤害×2，对火伤害×0.5','twin-night':' · 对火伤害×2，对草伤害×0.5','twin-shift':' · 持有另一张双生卡时，伤害后转换；继承全部战斗状态',wind:' · 进入蓄势：每次猜拳落败积1层，最多2层；下次进攻每层伤害＋25，随后结束蓄势',predict:' · 秘密预判对方下次行动为进攻或撤退；行动后若猜中且战斗继续，下次进攻伤害＋30，不叠加',seal:' · 有待结伤势则取消，本次不获保护；否则获得不叠加的封伤保护，下次直接受伤暂存一半、最多30，再次受伤时结清',heal:` · 自己回血 ${s.amount}`,delay:` · 对方剩余撤退 +${s.amount}`,charge:' · 下一次裂风突袭＋30，不叠加',burst:' · 蓄势时65伤害，用后清除',shield:' · 获得下次受击减伤15的护盾，不叠加',desperate:' · 自己剩余HP≤60时改为60伤害',echo:' · 追加上次实际受伤量的一半，向下取整、最多＋30，用后清除',burn:' · 之后2次任一方行动结束，对方各受15烙印伤害；刷新不叠加',mark:' · 留下1个晶痕，不叠加',bite:' · 消耗对方晶痕，伤害＋25',weaken:' · 对方之后2次进攻伤害降低25%，刷新不叠加',root:' · 无根劲且自己剩余撤退＜5时，剩余撤退＋1，获得2次根劲','root-strike':' · 有根劲时伤害＋20，消耗1次'})[s.effect]??''}`;
+export const skillText = s => `${s.damage} 伤害${({'death-ward':' · 当次行动末及之后2次任一方行动内，HP归零时殒爆60；每局仅挂印1次，不刷新',pursuit:' · 对方剩余撤退点数为1时，伤害＋40',dice:' · 掷1枚六面骰，伤害乘点数；可重掷1次，须接受新结果','twin-day':' · 对草伤害×2，对火伤害×0.5','twin-night':' · 对火伤害×2，对草伤害×0.5','twin-shift':' · 持有另一张双生卡时，伤害后转换；继承全部战斗状态',wind:' · 进入蓄势：每次猜拳落败积1层，最多2层；下次进攻每层伤害＋25，随后结束蓄势',predict:' · 秘密预判对方下次行动为进攻或撤退；行动后若猜中且战斗继续，下次进攻伤害＋30，不叠加',seal:' · 有待结伤势则取消，本次不获保护；否则获得不叠加的封伤保护，下次直接受伤暂存一半、最多30，再次受伤时结清',heal:` · 自己回血 ${s.amount}`,delay:` · 对方剩余撤退 +${s.amount}`,charge:' · 下一次裂风突袭＋30，不叠加',burst:' · 蓄势时65伤害，用后清除',shield:' · 获得下次受击减伤15的护盾，不叠加',desperate:' · 自己剩余HP≤60时改为60伤害',echo:' · 追加上次实际受伤量的一半，向下取整、最多＋30，用后清除',burn:' · 之后2次任一方行动结束，对方各受15烙印伤害；刷新不叠加',mark:' · 留下1个晶痕，不叠加',bite:' · 消耗对方晶痕，伤害＋25',weaken:' · 对方之后2次进攻伤害降低25%，刷新不叠加',root:' · 无根劲且自己剩余撤退＜5时，剩余撤退＋1，获得2次根劲','root-strike':' · 有根劲时伤害＋20，消耗1次'})[s.effect]??''}`;
 export function inventory(player, laboratory = false) {
   const ids = laboratory ? CARDS.flatMap(c => [c.id,c.id]) : STARTERS;
   return ids.map((cardId,i) => ({ id:`${player}-${laboratory ? 'lab' : 'start'}-${i}`, cardId }));

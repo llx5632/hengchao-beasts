@@ -190,10 +190,10 @@ function skillButton(battle,p,skill,index){
   if(skill.effect==='predict'&&!actual.effectSkipped)notes.push(battle.prediction?.[p]?'保留已封存预判，不改选、不叠加。':'点击后秘密选择预判进攻或撤退，与本次技能一并封存。');
   if(battle.prediction?.[1-p])notes.push('对方的秘密预判将在本次行动结束后揭晓。');
   if(actual.transformed)notes.push(`伤害后转为${CARD[actual.transformed.to].name}，继承全部战斗状态；若战败，失去${CARD[actual.transformed.to].name}。`);
-  if(actual.effectSkipped)notes.push('伤害致胜后立即结算，附加效果不再触发。');
+  if(actual.effectSkipped)notes.push(actual.deathTriggered.some(Boolean)?'直接伤害使对方归零，先处理伏印；本招附加效果不再触发。':'伤害致胜后立即结算，附加效果不再触发。');
   else if(actual.lethal)notes.push('本次可击败对方，结束对局。');
-  if(actual.selfDefeat)notes.push('警告：行动后持续伤害会使自己HP归零，判负失卡。');
-  if(actual.draw)notes.push('双方持续伤害同时归零，本次判平局，各自保留卡牌。');
+  if(actual.selfDefeat)notes.push(actual.deathTriggered.some(Boolean)?'警告：死亡与殒爆结算后自己归零、对方仍存活，判负失卡。':'警告：行动后持续伤害会使自己HP归零，判负失卡。');
+  if(actual.draw)notes.push(actual.deathTriggered.some(Boolean)?'殒爆后双方HP归零，本次判平局，各自保留卡牌。':'双方持续伤害同时归零，本次判平局，各自保留卡牌。');
   if(skill.effect==='heal'&&!actual.effectSkipped)notes.push(actual.healing===0?'当前已满血，本次回血为 0。':`实际回血 ${actual.healing}`);
   if(skill.effect==='delay'&&!actual.effectSkipped)notes.push(actual.delay===0?'对方剩余撤退已达上限，本次阻退为 0。':`对方剩余撤退＋${actual.delay}`);
   if(skill.effect==='charge'&&!actual.effectSkipped)notes.push(battle.charge?.[p]?'已有蓄势，不叠加。':'获得蓄势：下次裂风突袭＋30。');
@@ -202,6 +202,8 @@ function skillButton(battle,p,skill,index){
   if(skill.effect==='echo')notes.push(battle.echo?.[p]?`回响记录${battle.echo[p]}，取一半向下取整、最多＋30；本次使用后清除。`:'没有受伤记录，本次不追加伤害。');
   if(skill.effect==='desperate')notes.push(battle.hp[p]<=60?'绝境已生效。':'当前HP高于60，绝境未生效。');
   if(skill.effect==='pursuit')notes.push(battle.remaining[1-p]===1?'对方剩余撤退为1，本次追击伤害＋40；不阻止成功撤退。':`对方剩余撤退为${battle.remaining[1-p]}，未满足追击条件。`);
+  if(skill.effect==='death-ward'&&!actual.effectSkipped)notes.push(battle.deathUsed?.[p]?'本局挂印资格已用，本次只造成基础伤害，不刷新、不补次。':'本局仅挂印1次；当次行动末立即有效，随后2次任一方实际行动内HP归零时殒爆60。护盾与封伤可抵挡；成功撤退、投降和属性直胜不触发。');
+  for(const q of [0,1])if(actual.deathTriggered[q])notes.push(`${name(q)}伏印触发；${name(1-q)}殒爆实际直接受伤${actual.deathDamage[1-q]}，最终HP已计入防护及旧伤。`);
   if(skill.effect==='burn'&&!actual.effectSkipped)notes.push(`${battle.burn?.[1-p]?'刷新':'施加'}余烬烙印：之后2次任一方行动结束各受15伤害，不叠加。`);
   if(skill.effect==='mark'&&!actual.effectSkipped)notes.push(battle.mark?.[1-p]===p?'对方已有自己的晶痕，不叠加。':'给对方留下1个晶痕。');
   if(skill.effect==='bite')notes.push(b.bonus?'本次消耗对方晶痕，伤害＋25。':'对方没有自己的晶痕，本次基础伤害40。');
@@ -217,14 +219,14 @@ function skillButton(battle,p,skill,index){
   if(actual.burnSkipped)notes.push('本次立即结束，不再结算持续伤害。');
   const impact=`实际伤害 ${actual.damage}${skill.effect==='heal'?` · 实际回血 ${actual.healing}`:skill.effect==='delay'?` · 对方剩余撤退 +${actual.delay}`:''}`;
   const afterShield=Math.max(0,b.afterReduction-b.blocked);
-  const immediate=afterShield-actual.deferred[1-p];
-  const calculation=`基础${b.base}${b.bonus?`＋强化${b.bonus}`:''}${b.elementMultiplier!==1?`×属性倍率${b.elementMultiplier}`:''}${b.multiplier!==1?`→削弱25%后${b.afterReduction}`:''}${b.blocked?`－护盾${b.blocked}`:''}${actual.deferred[1-p]?`－暂存${actual.deferred[1-p]}`:''}＝${immediate}${actual.damage<immediate?`；实际直接扣血受剩余HP限制为${actual.damage}`:''}${actual.settled[1-p]?`；旧伤另扣${actual.settled[1-p]}`:''}`;
-  return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='heal'||actual.burnDamage[p]?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
+  const immediate=afterShield-b.directDeferred;
+  const calculation=`基础${b.base}${b.bonus?`＋强化${b.bonus}`:''}${b.elementMultiplier!==1?`×属性倍率${b.elementMultiplier}`:''}${b.multiplier!==1?`→削弱25%后${b.afterReduction}`:''}${b.blocked?`－护盾${b.blocked}`:''}${b.directDeferred?`－暂存${b.directDeferred}`:''}＝${immediate}${actual.damage<immediate?`；实际直接扣血受剩余HP限制为${actual.damage}`:''}${b.directSettled?`；旧伤另扣${b.directSettled}`:''}`;
+  return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='heal'||actual.burnDamage[p]||actual.deathDamage[p]?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
 }
 function retreatButton(b,p){
   const r=resolveCombatAction(battleForViewer(b,p),p,{type:'retreat'}),burn=r.effects.burnDamage;
   const oldWound=r.effects.settled[p]?` · 再次受伤追加旧伤${r.effects.settled[p]}`:'';
-  const note=r.finished?(r.winner===null?' · 本次平局':r.winner===p?' · 持续伤害使对方归零，本次获胜':' · 警告：行动后持续伤害会使自己归零判负'):burn.some(Boolean)?` · 烙印：${burn.map((n,q)=>n?`${name(q)}－${n}HP`:'').filter(Boolean).join('，')}`:'';
+  const note=r.finished?(r.winner===null?' · 本次平局':r.winner===p?' · 行动末伤害使对方归零，本次获胜':r.effects.deathTriggered.some(Boolean)?' · 警告：死亡与殒爆结算后自己仍败':' · 警告：行动后持续伤害会使自己归零判负'):burn.some(Boolean)?` · 烙印：${burn.map((n,q)=>n?`${name(q)}－${n}HP`:'').filter(Boolean).join('，')}`:'';
   return btn(`选择撤退 · ${b.remaining[p]} → ${r.state.remaining[p]}${note}${oldWound}${b.prediction?.[1-p]?' · 行动后揭晓对方预判':''}`,'retreat','ghost');
 }
 function privateTurn(m,p){

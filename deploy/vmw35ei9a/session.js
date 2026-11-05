@@ -13,6 +13,7 @@ export function freshSession() {
     twinCardsGranted: true,
     goldToadGranted: true,
     thornTigerGranted: true,
+    emberFireflyGranted: true,
     difficulty: 'easy',
     autoAdvance: true,
     battleCompact: true,
@@ -56,6 +57,11 @@ export function upgradeSession(session) {
     const existing=new Set(session.players.flatMap(p=>p.cards.map(c=>c.id)));
     session.players.forEach((p,player)=>{const id=`release-thorn-tiger-${player}`;if(existing.has(id))return;const card={id,cardId:'jiejing'};p.cards.push(card);if(session.match?.status==='active')session.match.inventories[player].push({...card});});
     session.thornTigerGranted=true;changed=true;
+  }
+  if(!session.emberFireflyGranted){
+    const existing=new Set(session.players.flatMap(p=>p.cards.map(c=>c.id)));
+    session.players.forEach((p,player)=>{const id=`release-ember-firefly-${player}`;if(existing.has(id))return;const card={id,cardId:'jinnangying'};p.cards.push(card);if(session.match?.status==='active')session.match.inventories[player].push({...card});});
+    session.emberFireflyGranted=true;changed=true;
   }
   if(session.rulesRevision!==RULES_REVISION){
     if(session.match){session.match=null;session.releaseNotice='技能规则已更新，旧对局已清理；收藏及已结算的赢失卡结果保留。';}
