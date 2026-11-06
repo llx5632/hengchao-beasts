@@ -15,6 +15,7 @@ export function freshSession() {
     thornTigerGranted: true,
     emberFireflyGranted: true,
     springSalamanderGranted: true,
+    mantisTwinsGranted: true,
     difficulty: 'easy',
     autoAdvance: true,
     battleCompact: true,
@@ -68,6 +69,15 @@ export function upgradeSession(session) {
     const existing=new Set(session.players.flatMap(p=>p.cards.map(c=>c.id)));
     session.players.forEach((p,player)=>{const id=`release-spring-salamander-${player}`;if(existing.has(id))return;const card={id,cardId:'cangquanyuan'};p.cards.push(card);if(session.match?.status==='active')session.match.inventories[player].push({...card});});
     session.springSalamanderGranted=true;changed=true;
+  }
+  if(!session.mantisTwinsGranted){
+    const existing=new Set(session.players.flatMap(p=>p.cards.map(c=>c.id)));
+    session.players.forEach((p,player)=>{for(const cardId of ['yangfengtang','fufengtang']){
+      const id=`release-mantis-twins-${player}-${cardId}`;if(existing.has(id))continue;
+      const card={id,cardId};p.cards.push(card);existing.add(id);
+      if(session.match?.status==='active')session.match.inventories[player].push({...card});
+    }});
+    session.mantisTwinsGranted=true;changed=true;
   }
   if(session.rulesRevision!==RULES_REVISION){
     if(session.match){session.match=null;session.releaseNotice='技能规则已更新，旧对局已清理；收藏及已结算的赢失卡结果保留。';}

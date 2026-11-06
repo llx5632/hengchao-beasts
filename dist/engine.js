@@ -1,6 +1,6 @@
 import { CARD, TWIN_PARTNERS, BEATS, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
 import { hardPointAction, hardBattleAction } from './ai.js';
-import { resolveCombatAction, clearCombatStatuses, combatStatusValue, applyRpsLoss, battleForViewer, skillAvailable, skillUnavailableReason, battleActions, twinDamageMultiplier, combatOutcomes, expectedCombatScore, immediateCombatScore, simpleDiceChoice } from './combat.js';
+import { resolveCombatAction, clearCombatStatuses, combatStatusValue, applyRpsLoss, battleForViewer, skillAvailable, skillUnavailableReason, battleActions, twinDamageMultiplier, combatOutcomes, expectedCombatScore, immediateCombatScore, simpleDiceChoice, twinBloodBonus } from './combat.js';
 
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 export const randomInt = (max, rng = Math.random) => Math.min(max - 1, Math.floor(rng() * max));
@@ -218,7 +218,7 @@ export function aiAction(m,p,rng=Math.random) {
     if(!survives&&(!retreat.finished||retreat.winner===null))return {type:'retreat',player:p};
     let skill=0,best=-Infinity;
     own.skills.forEach((s,i)=>{const r=projected[i];if(!r)return;const next=r.state;
-      const score=s.effect==='dice'?expectedCombatScore(b,p,attack(i),r=>immediateCombatScore(b,p,r)):r.finished&&r.winner===1-p?-10000:b.hp[1-p]-next.hp[1-p]+next.hp[p]-b.hp[p]+combatStatusValue(next,p)-combatStatusValue(b,p)+(s.effect==='twin-shift'?(twinDamageMultiplier(CARD[next.cards[p]].skills[0],other.element)-twinDamageMultiplier(own.skills[0],other.element))*own.skills[0].damage:0)+(s.effect==='delay'&&b.remaining[1-p]<=2?16:0)-(next.remaining[p]-b.remaining[p])*2;
+      const score=s.effect==='dice'?expectedCombatScore(b,p,attack(i),r=>immediateCombatScore(b,p,r)):r.finished&&r.winner===1-p?-10000:b.hp[1-p]-next.hp[1-p]+next.hp[p]-b.hp[p]+combatStatusValue(next,p)-combatStatusValue(b,p)+(s.effect==='twin-shift'?(CARD[next.cards[p]].skills[0].damage+twinBloodBonus(next,p,CARD[next.cards[p]].skills[0]))*twinDamageMultiplier(CARD[next.cards[p]].skills[0],other.element)-(own.skills[0].damage+twinBloodBonus(next,p,own.skills[0]))*twinDamageMultiplier(own.skills[0],other.element):0)+(s.effect==='delay'&&b.remaining[1-p]<=2?16:0)-(next.remaining[p]-b.remaining[p])*2;
       if(score>best){best=score;skill=i;}
     });
     return attack(skill);

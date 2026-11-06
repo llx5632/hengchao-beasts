@@ -20,7 +20,7 @@ export function canTwinShift(battle,player){
 export function skillUnavailableReason(battle,player,index){
   const card=CARD[battle.cards[player]],skill=card.skills[index];
   if(!skill)return '请选择有效技能';
-  if(skill.effect==='twin-shift'&&!canTwinShift(battle,player))return '缺少已绑定的双生伙伴，无法使用双生相转';
+  if(skill.effect==='twin-shift'&&!canTwinShift(battle,player))return `缺少已绑定的双生伙伴，无法使用${skill.name}`;
   if(skill.effect==='revive-ward'){
     if(battle.reviveUsed?.[player]||battle.reviveWard?.[player])return '本场回生伏印已施放，不能重复使用';
     if(battle.hp[player]<=0||battle.hp[player]*2>=card.hp)return '当前HP须严格低于半血（1～59），才能施放回生伏印';
@@ -32,6 +32,11 @@ export function twinDamageMultiplier(skill,element){
   if(skill.effect==='twin-day')return element==='草'?2:element==='火'?.5:1;
   if(skill.effect==='twin-night')return element==='火'?2:element==='草'?.5:1;
   return 1;
+}
+// Snapshot the opponent's public HP at the start of this attack; no stored buff.
+export function twinBloodBonus(battle,player,skill){
+  const other=1-player,healthy=battle.hp[other]*2>CARD[battle.cards[other]].hp;
+  return (skill.effect==='twin-healthy'&&healthy||skill.effect==='twin-wounded'&&!healthy)?skill.amount:0;
 }
 // A current public-value condition, never a stored buff or a retreat reaction.
 export function pursuitBonus(battle,player,skill){return skill.effect==='pursuit'&&battle.remaining[1-player]===1?skill.amount:0;}
@@ -49,7 +54,8 @@ export function combatStatuses(s,p,viewer=0){
   const c=CARD[s.cards[p]],out=[],other=1-p,add=(id,label,active,detail)=>out.push({id,label,active,detail});
   if(c.id==='cangquanyuan'||s.reviveWard?.[p])add('revive-ward',s.reviveWard?.[p]?'回生伏印：待触发':s.reviveUsed?.[p]?'回生伏印：本场已用':s.hp[p]*2<c.hp?'回生伏印：可施放':'回生伏印：未到半血以下',!!s.reviveWard?.[p],'来源：回生伏印。HP严格低于半血时每战仅可施放一次；先造成15基础伤害，战斗继续则挂印，覆盖当次行动末，持续到触发或战斗结束。有效印使致命伤归零（含恰好归零）后、最终胜负前，HP直接恢复至最大HP的50%，无论溢出多少均不再扣除该次溢出。保留其他状态，不补行动；同批持续伤害双方归零仍平局，不回生。投降、属性直胜和成功撤退不触发。');
   if(c.id==='jinnangying'||s.deathWard?.[p])add('death-ward',s.deathWard?.[p]?`伏印 · 余${s.deathWard[p]}次双方行动 · 殒爆${s.deathPower[p]}`:s.deathUsed?.[p]?'伏印：本局挂印已用':'伏印：本局尚可挂印1次',!!s.deathWard?.[p],'来源：殒爆伏印。本局仅取得一次，不刷新、不返还。施放即生效并覆盖当次行动末，当次不扣次数；随后2次任一方进攻或未成功撤退内HP归零，先殒爆60再判胜负。末次先检查死亡后到期；猜拳、展示与等待不计时。殒爆可被护盾／封伤抵挡，不受攻击增减影响。双方归零平局保卡，对方存活自己仍败。投降、属性直胜、成功撤退不触发。');
-  if(TWIN_PARTNERS[c.id]){const partner=CARD[TWIN_PARTNERS[c.id]],ready=canTwinShift(s,p);add('twin',ready?`双生：可转为${partner.name}`:`双生：缺少${partner.name}`,ready,`伙伴：${partner.name}。${ready?'已绑定实际伙伴谱印；使用双生相转先造成10基础伤害，未直接致胜则转换，占一次进攻。':'未绑定伙伴，双生相转不可用。'}转换保留HP、伤势、剩余撤退、全部状态及来源计数；战败或投降只失去当前形态对应的实际卡牌。双方同次持续伤害归零仍平局保卡。`);}
+  if(TWIN_PARTNERS[c.id]){const partner=CARD[TWIN_PARTNERS[c.id]],ready=canTwinShift(s,p),shift=c.skills.find(skill=>skill.effect==='twin-shift');add('twin',ready?`双生：可转为${partner.name}`:`双生：缺少${partner.name}`,ready,`伙伴：${partner.name}。${ready?`已绑定实际伙伴谱印；使用${shift.name}先造成${shift.damage}基础伤害，战斗继续则转换，占一次进攻。`:`未绑定伙伴，${shift.name}不可用。`}转换保留HP、伤势、剩余撤退、全部状态及来源计数；战败或投降只失去当前形态对应的实际卡牌。双方同次持续伤害归零仍平局保卡。`);}
+  if(['twin-healthy','twin-wounded'].includes(c.skills[0].effect)){const high=s.hp[other]*2>CARD[s.cards[other]].hp,active=twinBloodBonus(s,p,c.skills[0])>0;add('twin-blood',`${high?'扬锋':'伏锋'}优势 · ${c.skills[0].name}${active?'＋35':'未强化'}`,active,`来源：${c.skills[0].name}。只按本次进攻开始时对方当前HP判断；扬锋对应严格高于半血，伏锋对应半血及以下，满足时基础25＋35至60。只强化第一技能，不积层；本次过半不重算，对方治疗或回生后下次重新判断。转换15也会改变血线，须考虑完整行动结果。`);}
   if(c.id==='xuanjiao')add('wind',(s.wind?.[p]??-1)<0?'逆风：未蓄势':s.wind[p]===0?'逆风蓄势0层':`风压${s.wind[p]}层 · 下次进攻＋${s.wind[p]*25}`,(s.wind?.[p]??-1)>=0,'来源：逆风蓄势。进入0层后每次猜拳落败积1层，每层＋25，最多2层。平手不积层；下一次任一技能进攻消耗整个蓄势，包括0层。再次使用逆风蓄势先释放旧层，再重新进入0层。未成功撤退保留，结束清空。');
   if(c.id==='chaojing'){
     const pending=s.prediction?.[p],choice=p===viewer&&pending&&pending!=='hidden'?(pending==='attack'?'进攻':'撤退'):null;
@@ -150,6 +156,8 @@ export function resolveCombatAction(battle,player,action){
     return state.remaining[player]===0?outcome(true,null):actionEnd();
   }
   const skill=CARD[state.cards[player]].skills[action.skill];let bonus=0;
+  const blood=twinBloodBonus(state,player,skill);
+  if(blood){bonus+=blood;events.push(`${skill.effect==='twin-healthy'?'对方HP高于半血，扬锋':'对方HP不高于半血，伏锋'}优势生效，伤害＋${blood}`);}
   if(skill.effect==='revive-ward')state.reviveUsed[player]=true;
   const pursuit=pursuitBonus(state,player,skill);
   if(pursuit){bonus+=pursuit;events.push(`${label(other)}剩余撤退为1，封路追击伤害＋${pursuit}`);}
