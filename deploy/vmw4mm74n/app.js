@@ -1,28 +1,22 @@
+import { loadSession, saveSession } from './storage.js';
+import { esc, btn } from './ui.js';
+import { cardInfo, card, playedCard } from './card-view.js';
+import { renderCatalog } from './catalog-view.js';
 import { CARDS, CARD, TWIN_PARTNERS, BEATS, ELEMENTS, METRICS, POINT_NUMBERS, pointMetricIndex, skillText } from './data.js';
 import { dispatch, expectedPlayers, aiAction, randomInt } from './engine.js';
-import { SAVE_KEY, freshSession, createLocalMatch, upgradeSession } from './session.js';
+import { freshSession, createLocalMatch } from './session.js';
 import { DIFFICULTIES, normalizeDifficulty } from './ai.js';
 import { scheduledStep } from './flow.js';
 import { SELECTION_SORTS, selectionCards, selectionSummary } from './selection.js';
 import { previewSkill, battleEndedBySurrender, combatStatuses, resolveCombatAction, battleForViewer, skillAvailable, skillUnavailableReason, twinBloodBonus } from './combat.js';
-import { selectionDraft, normalizePresets, createPreset, resolvePreset, canLeaveSelection } from './roster.js';
-import { newTutorial, normalizeTutorial, beginTutorialLesson, tutorialAction } from './tutorial.js';
+import { selectionDraft, createPreset, resolvePreset, canLeaveSelection } from './roster.js';
+import { newTutorial, beginTutorialLesson, tutorialAction } from './tutorial.js';
 import { renderTutorial } from './tutorial-ui.js';
-import { EASTER_EGG_MESSAGES, FIREWORKS_DURATION, normalizeEasterEgg, unlockEasterEgg, nextEasterEgg, fireworksMarkup } from './easter-egg.js';
+import { EASTER_EGG_MESSAGES, FIREWORKS_DURATION, unlockEasterEgg, nextEasterEgg, fireworksMarkup } from './easter-egg.js';
 
-const KEY=SAVE_KEY, app=document.querySelector('#app');
+const app=document.querySelector('#app');
 const fresh=freshSession;
-let store,hadSavedSession=false;
-try { const saved=JSON.parse(localStorage.getItem(KEY)); hadSavedSession=saved?.version === 2 && saved.players?.length === 2;store=hadSavedSession?saved:fresh(); } catch { store=fresh(); }
-const sessionUpdated=upgradeSession(store);
-store.difficulty=normalizeDifficulty(store.difficulty);
-store.autoAdvance=store.autoAdvance!==false;
-store.battleCompact=store.battleCompact!==false;
-store.lineupPresets=normalizePresets(store.lineupPresets);
-store.selectionDrafts=store.selectionDrafts&&typeof store.selectionDrafts==='object'&&!Array.isArray(store.selectionDrafts)?store.selectionDrafts:{};
-store.tutorial=normalizeTutorial(store.tutorial,!hadSavedSession);
-store.easterEgg=normalizeEasterEgg(store.easterEgg);
-if(store.match)store.match.difficulty=normalizeDifficulty(store.match.difficulty);
+let {store,hadSavedSession,sessionUpdated}=loadSession(()=>localStorage);
 let route=store.match&&!(store.selectionLobby&&canLeaveSelection(store.match)) ? 'match' : 'home', draft=selectionDraft(store.match), filter='全部', owner=0, timer=null, toastTimer=null, previewCardId=null, paused=false;
 let selectionElement='全部',selectionSort='default',selectionAscending=false,selectedOnly=false,draftOverviewOpen=false;
 let presetsOpen=false,draftNotice=draft.length?'已恢复上次未封存的选卡。':'';
@@ -31,9 +25,7 @@ let storageFailed=false,readingOpen={log:false,lineup:false};
 let eggTimer=null,eggAdvanceAt=0;
 if(store.tutorial.status==='active')route='tutorial';
 const name=p => store.players[p].name;
-const esc=value => String(value).replace(/[&<>"']/g,c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const btn=(text,action,cls='',attrs='') => `<button class="btn ${cls}" data-action="${action}" ${attrs}>${text}</button>`;
-function save(){try{localStorage.setItem(KEY,JSON.stringify(store));storageFailed=false;diceSaveBlocked=false;return true;}catch{storageFailed=true;toast('存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。');return false;}}
+function save(){const saved=saveSession(()=>localStorage,store);storageFailed=!saved;if(saved)diceSaveBlocked=false;else toast('存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。');return saved;}
 function saveDraft(){store.match.selectionDraft=[...draft];store.selectionDrafts[store.match.mode]=[...draft];return save();}
 function toast(text){const el=document.querySelector('#toast');el.textContent=text;el.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.display='none',4200);}
 function modal(title,body,action=null,label='确定'){
@@ -92,30 +84,17 @@ function finishEasterEgg(){
   clearTimeout(eggTimer);if(store.easterEgg?.status!=='fireworks')return;
   store.easterEgg={...store.easterEgg,status:'completed',step:5};save();document.querySelector('#easter-egg-dialog').close();render();
 }
-function cardInfo(c){return `<div class="card-reading"><div class="eyebrow">${c.tier} · ${c.element}属性 · 克制${BEATS[c.element]}</div><h3>${c.name}</h3><p>基础 HP <b>${c.hp}</b> · 基础撤退 <b>${c.retreat}</b><br>身高 ${c.height}m · 体重 ${c.weight}kg</p><div class="reading-skills">${c.skills.map(s=>`<div><strong>${s.name}</strong><p>${skillText(s)}</p></div>`).join('')}</div><p class="story-text">${c.story}</p></div>`;}
 function openCard(id){
   const c=CARD[id];if(!c)return;
   const d=document.querySelector('#card-dialog');
   d.innerHTML=`<header class="viewer-head"><div><div class="eyebrow">完整卡面 · 可滚动查看</div><h2 id="card-dialog-title">${c.name}</h2></div>${btn('关闭卡面','close-card','ghost small','autofocus')}</header><div class="viewer-body"><img src="${c.art}" alt="${c.name}完整卡面" width="1024" height="1536">${cardInfo(c)}</div>`;
   d.showModal();scheduleAI();
 }
-function card(c,{instance=null,selected=false,details=false}={}){
-  const tag=instance?'button':'article',artTag=instance?'div':'button';
-  return `<${tag} class="beast-card ${selected?'selected':''}" data-element="${c.element}" ${instance?`data-action="choose-card" data-instance="${esc(instance)}" aria-pressed="${selected}" aria-label="选择 ${c.name}"`:''}>
-    <div class="card-title"><b>${c.name}</b><span class="element">${c.element}</span></div>
-    <${artTag} class="illustration ${c.art?'has-art':''}" ${instance?'':`data-action="zoom" data-card="${c.id}" aria-label="查看${c.name}插画大图"`}>${c.art?`<img src="${c.art}" alt="${c.name}谱印插画">`:`<span class="sigil">${c.name.slice(-1)}</span>`}<span class="art-note">${c.art?'谱印插画':'图鉴谱印'}</span></${artTag}>
-    ${selected?'<span class="selection-mark">✓</span>':''}
-    <div class="card-stats"><span>基础 HP<strong>${c.hp}</strong></span><span>基础撤退<strong>${c.retreat}</strong></span></div>
-    <div class="card-meta"><span>${c.tier} · 克制${BEATS[c.element]}</span><span>${c.height}m / ${c.weight}kg</span></div>
-    ${details?`<div class="card-skills">${c.skills.map(s=>`<div><b>${s.name}</b>　${skillText(s)}</div>`).join('')}</div><p class="story">${c.story}</p>${btn('放大完整卡面','zoom','card-source ghost small',`data-card="${c.id}" aria-label="放大${c.name}完整卡面"`)}`:''}
-  </${tag}>`;
-}
-function playedCard(c){return `<button class="played-card" data-action="zoom" data-card="${c.id}" aria-label="放大${c.name}完整卡面"><img src="${c.art}" alt="${c.name}完整卡面" width="1024" height="1536"><span class="zoom-hint">⊕ 点击放大</span></button>`;}
 function stateChange(last,field,player){if(!last?.before||!last.after)return '';const before=last.before[field][player],after=last.after[field][player],delta=after-before;if(!delta)return '';const good=field==='hp'?delta>0:delta<0;return `<span class="state-delta ${good?'benefit':'cost'}">${delta>0?'+':''}${delta}</span>`;}
 function battleState(c,state,player,showChanges=false){const last=showChanges?state.last:null;return `<div class="battle-state"><p><span>${name(player)} · 剩余 HP</span><b>${state.hp[player]} / ${c.hp} ${stateChange(last,'hp',player)}</b></p><div class="hp-track"><div class="hp-fill" style="width:${state.hp[player]/c.hp*100}%"></div></div><p><span>本局剩余撤退</span><b>${state.remaining[player]} ${stateChange(last,'remaining',player)}</b></p>${store.match?.status==='active'?battleStatusView(state,player):''}</div>`;}
 function hiddenCard(){return '<div class="hidden-card"><span class="crest">✦</span><p>衡潮谱印</p><small>对方卡牌尚未公开</small></div>';}
 function header(){const active=store.match?.status==='active'&&!canLeaveSelection(store.match);return `<header class="topbar"><button class="brand" data-action="home"><span class="crest">✦</span><span><strong>衡潮群岛</strong><small>THE TIDEBORNE ARCHIPELAGO</small></span></button><nav class="nav" aria-label="主导航"><button data-action="home" class="${route==='home'||route==='match'?'active':''}">${active?'当前对局':'对局大厅'}</button><button data-action="codex" class="${route==='codex'?'active':''}">异兽图鉴</button><button data-action="collection" class="${route==='collection'?'active':''}">我的收藏</button><button data-action="help">规则</button></nav><span class="edition">玩家对 AI · 本地首版</span></header>`;}
-function footer(){return '<footer class="footer"><span>衡潮群岛 / 原创异兽卡牌</span><span>本地浏览器保存 · 数值为候选设计 · 抽卡后续开放</span></footer>';}
+function footer(){return '<footer class="footer"><span>衡潮群岛 / 原创异兽卡牌</span><span>本地浏览器保存 · 抽卡后续开放</span></footer>';}
 function difficultyPicker(){return `<fieldset class="difficulty-picker"><legend>对手难度</legend><div class="difficulty-options">${Object.entries(DIFFICULTIES).map(([value,option])=>`<label class="difficulty-option ${store.difficulty===value?'selected':''}"><input type="radio" name="difficulty" value="${value}" data-action="difficulty" ${store.difficulty===value?'checked':''}><span><strong>${option.label}</strong><small>${option.description}</small></span></label>`).join('')}</div><p>开局前选择，整场使用同一难度。</p></fieldset>`;}
 function home(){
   const a=store.players[0].cards.length,b=store.players[1].cards.length,pending=canLeaveSelection(store.match);
@@ -127,16 +106,7 @@ function home(){
   <p class="footnote">你与 AI 初始均拥有全部可用异兽，每种一张。赢卡与失卡结果保存在当前浏览器。</p>
   <div class="toolbar" style="margin-top:20px">${store.easterEgg?.status==='paused'?btn('继续彩蛋','egg-resume','ghost small'):''}${btn(store.tutorial.status==='paused'?'继续新手教程':store.tutorial.status==='completed'?'重温新手教程':'新手教程','tutorial-open','ghost small')}${store.match?.status==='finished'?btn('查看上一场结果','last-match','ghost small'):''}${btn('恢复全部卡牌','reset','ghost small')}<span class="subtle">恢复后双方重新拥有全套卡牌，方便重复体验。</span></div></main>`;
 }
-function catalog(){
-  const isCollection=route==='collection';
-  const instances=isCollection?store.players[owner].cards:null;
-  const cards=isCollection?instances.map(i=>({card:CARD[i.cardId],instance:i})):CARDS.map(card=>({card}));
-  const visible=cards.filter(({card:c})=>filter==='全部'||c.element===filter);
-  return `<main class="wrap"><div class="section-heading"><div><div class="eyebrow">${isCollection?'YOUR FIELD COLLECTION':'BESTIARY · ISLAND ENCOUNTERS'}</div><h2>${isCollection?'我的谱印收藏':'群岛异兽图鉴'}</h2></div><span class="subtle">${isCollection?instances.length:CARDS.length} 张${isCollection?'持有卡牌':'候选卡牌'}</span></div>
-    <div class="toolbar">${isCollection?[0,1].map(p=>btn(name(p),'owner',owner===p?'small':'ghost small',`data-player="${p}"`)).join(''):''}${['全部',...ELEMENTS].map(e=>`<button class="filter ${filter===e?'active':''}" data-action="filter" data-value="${e}">${e}</button>`).join('')}</div>
-    ${!isCollection?'<div class="banner">高低阶与数值依据异兽的背景、体型和能力设计。点击插画或下方放大按钮可查看完整卡面。<a href="cards.html" target="_blank" rel="noopener">打开全部卡面总览 ↗</a></div>':''}
-    <div class="collection-grid">${visible.map(({card:c})=>card(c,{details:true})).join('')}</div>${!visible.length?'<p class="empty">这个属性暂时没有持有卡牌。</p>':''}</main>`;
-}
+function catalog(){return renderCatalog({isCollection:route==='collection',players:store.players,owner,filter});}
 function scoreboard(m){return `<div class="scoreboard"><div class="player"><strong>${name(0)}</strong><span class="badge">${m.controls[0]==='ai'?'AI 代出':'本地玩家'}</span><small>持有 ${m.inventories[0].length} 张${m.mode==='point'?` · 已胜 ${m.scores[0]} 小局`:''}</small></div><div class="score">${m.mode==='point'?`${m.scores[0]}<span>:</span>${m.scores[1]}`:'VS'}</div><div class="player"><strong>${name(1)}</strong><span class="badge">AI 对手 · ${DIFFICULTIES[normalizeDifficulty(m.difficulty)].label}</span><small>持有 ${m.inventories[1].length} 张${m.mode==='point'?` · 已胜 ${m.scores[1]} 小局`:''}</small></div></div>`;}
 function track(m,p=0){return `<div class="round-track">${[0,1,2,3,4].map(i=>{const r=m.rounds[i];return `<div class="round-cell"><small>第 ${i+1} 小局</small><b class="${r?.kind==='win'?(r.winner===p?'win':'loss'):''}">${!r?'—':r.kind==='same'?'＝':r.winner===p?'√':'×'}</b><span>${!r?'未进行':r.kind==='same'?'同卡跳过':r.winner===p?'获胜':'失利'}</span></div>`;}).join('')}</div>`;}
 function battleBoard(m){const side=p=>{const c=CARD[m.battle.cards[p]];const visual=store.battleCompact?`<button class="combat-card" data-action="zoom" data-card="${c.id}" aria-label="放大${c.name}完整卡面"><img src="${c.art}" alt="${c.name}卡面缩略图"><span><strong>${c.name}</strong><small>${c.element} · ${c.tier} · 点击查看完整卡面</small></span></button>`:playedCard(c);return `<div class="battle-combatant">${visual}${battleState(c,m.battle,p,['battle-turn','finished'].includes(m.phase)&&!battleEndedBySurrender(m))}</div>`;};return `<div class="board ${store.battleCompact?'compact-board':''}" aria-label="双方战斗状态">${side(0)}<span class="versus">VS</span>${side(1)}</div>`;}

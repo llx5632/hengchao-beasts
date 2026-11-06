@@ -1,3 +1,7 @@
+import * as storageModule from '../../dist/storage.js';
+import * as ui from '../../dist/ui.js';
+import * as cardView from '../../dist/card-view.js';
+import * as catalogView from '../../dist/catalog-view.js';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import * as data from '../../dist/data.js';
@@ -41,7 +45,7 @@ export function appHarness(saved=null) {
     if(selector==='.flow-controls [role="status"]')return html.includes('class="flow-controls"')?status:null;
     return nodes.get(selector)??null;
   },querySelectorAll(){return [];},addEventListener(name,handler){listeners[name]=handler;}};
-  const context=vm.createContext({...data,...engine,...session,...ai,...flow,...selection,...combat,...roster,...tutorial,...tutorialUI,...easterEgg,
+  const context=vm.createContext({...data,...engine,...session,...ai,...flow,...selection,...combat,...roster,...tutorial,...tutorialUI,...easterEgg,...storageModule,...ui,...cardView,...catalogView,
     Date:class extends Date{static now(){return clock;}},
     structuredClone,crypto,console,document,
     localStorage:{getItem:key=>storage.get(key)??null,setItem(key,value){if(blocked)throw new Error('QuotaExceededError');storage.set(key,value);}},

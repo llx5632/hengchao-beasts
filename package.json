@@ -9,6 +9,7 @@
     "test": "node --test test/*.test.mjs",
     "check:art": "node scripts/check-local-art.mjs",
     "check:deploy": "node scripts/check-deploy.mjs",
-    "check:clean": "node scripts/check-clean-checkout.mjs"
+    "check:clean": "node scripts/check-clean-checkout.mjs",
+    "sync:art": "node scripts/sync-art-index.mjs"
   }
 }

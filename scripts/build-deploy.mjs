@@ -56,6 +56,12 @@ const cardsHtml = rel(await readFile(join(dist, 'cards.html'), 'utf8'))
   });
 
 await writeFile(join(body, 'app.js'), rel(await readFile(join(dist, 'app.js'), 'utf8')));
+// Extracted view modules use the same art URLs as the application entry point.
+for (const name of await readdir(dist)) {
+  if (name.endsWith('.js') && name !== 'card-art.js' && name !== 'app.js') {
+    await writeFile(join(body, name), rel(await readFile(join(dist, name), 'utf8')));
+  }
+}
 await writeFile(join(body, 'cards.html'), cardsHtml);
 await rm(join(body, 'index.html'));
 
