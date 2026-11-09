@@ -4,6 +4,8 @@
 
 2026-11-06发布分工更新：本地桌面、手机交互验收及既有发布前检查通过后，按当次授权上线。助手确认部署成功并更新进度即结束任务，发布后的线上测试由用户进行；未获用户反馈不记为线上测试通过。具体流程见[DEPLOY.md](DEPLOY.md)。
 
+2026-11-07范围确认：当前网页前端验证版不新增存档保护，导出／导入、备份、损坏恢复及多标签页冲突保护不列本阶段待办；后续小程序或独立后端版本再设计。现有保存、刷新续局、失败提醒和重试保留。
+
 在此目录运行：
 
 ```powershell
@@ -16,7 +18,29 @@ npm.cmd start
 npm.cmd test
 ```
 
-## 2026-11-06 本地工程与资产整理（未重新发布）
+## 可重复的本地浏览器验收（2026-11-06新增，尚未推送）
+
+游戏运行和 `npm.cmd test` 仍无需依赖；浏览器验收使用锁定版本的Playwright开发依赖。首次先执行 `npm.cmd ci`。Windows默认复用本机已安装的Edge；没有Edge的环境先执行 `npx.cmd playwright install chromium`，Linux首次使用 `npx playwright install --with-deps chromium`。测试每次启动独立浏览器上下文，不读取个人浏览器收藏。
+
+```powershell
+npm.cmd run test:browser
+npm.cmd run check:clean:browser
+npm.cmd run test:browser:report
+```
+
+第一条检查现有 `deploy/`，自动启动并停止仅绑定回环地址的服务器，使用 `/hengchao-beasts/` 项目子路径，运行桌面1280×800和手机390×844各8项，共16项。修改游戏源码后先按原流程重新build；浏览器检查不替你构建，也不访问线上站点。第二条仅复制发布范围文件，在隔离目录安装锁定开发依赖并运行规则、部署及同一套浏览器检查；无需上级GDD原图、deploy-art或本机QA资料。
+
+覆盖：27卡图鉴与四张归档卡放大、拼点选卡筛选与常用阵容刷新、活动战斗续局、弹窗及公开记录暂停AI、阵容命名保存失败恢复、草稿重试保存、完整战斗赢卡、完整五小局拼点及实例守恒。页面错误、失败资源或横向溢出会失败；测试不自动重试来掩盖失败。
+
+报告保存在忽略入库的 `browser-results/`，失败保留截图和trace；隔离运行结果复制到 `browser-results/clean/`。普通报告用第三条打开，隔离报告用 `npx.cmd playwright show-report browser-results/clean/report` 查看。只跑手机可执行 `npm.cmd run test:browser -- --project=mobile-390`；端口占用时在本次终端设置 `$env:BROWSER_TEST_PORT='4174'`，可用 `$env:BROWSER_TEST_CHANNEL='chromium'` 明确使用已安装的Playwright Chromium。
+
+一键发布在构建、部署及隔离规则检查后，新增本地浏览器门禁，通过才提交推送；Actions在上传前再次对仓库内部署包运行同样16项，失败保留7天检查产物。本轮仅新增本地验收工具及待提交的CI配置，未推送或发布。手机检查为Chromium内核的390px触屏模拟，不能替代真机及Safari测试。
+
+配置与用例：[playwright.config.mjs](playwright.config.mjs) · [smoke.spec.mjs](e2e/smoke.spec.mjs)。测试服务器与可控时钟按[Playwright官方文档](https://playwright.dev/docs/test-webserver)及[Clock说明](https://playwright.dev/docs/clock)使用。
+
+## 2026-11-06 工程与资产整理（用户已发布）
+
+用户已推送提交`b645627`，部署`vmw4mm74n`；[Action42178190643](https://github.com/llx5632/hengchao-beasts/actions/runs/42178190643)成功。已部署上线，线上测试由用户进行；助手本次仅核对流程，未执行线上站点测试。详见 `qa/maintenance-release-verification.json`。
 
 当前27卡／54技能，27张采用图均位于 `卡牌/当前卡面/`。四张历史卡沿用同一验收图正式归档，候选区保留来源副本与生成日志；原始十五张资源清单继续作为历史快照。
 

@@ -8,3 +8,6 @@ deploy-art/
 
 # 本机预览服务无需入库的内容
 _qa_tmp/
+
+# Reproducible browser smoke reports, traces and failure screenshots.
+browser-results/

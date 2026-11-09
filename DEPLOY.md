@@ -8,7 +8,7 @@
 
 ## 当前发布分工（2026-11-06用户更新）
 
-发布前完成本地桌面和手机端交互验收，以及现有规则回归、原图验收、部署资源检查和隔离检出检查；按本次明确上线授权执行发布。一键发布仍保留测试、构建、check:deploy和check:clean门禁。
+发布前完成本地桌面和手机端交互验收，以及现有规则回归、原图验收、部署资源检查和隔离检出检查；按本次明确上线授权执行发布。一键发布保留测试、构建、check:deploy和check:clean门禁，并新增本地test:browser门禁；浏览器检查失败会在提交、推送前停止。首次使用需npm.cmd ci及可用Edge／Playwright Chromium，详见README。
 
 发布后，助手确认GitHub Actions部署成功，记录提交、部署版本、工作流结果和本地验收证据，更新进度文档即可结束任务。线上浏览器交互、资源下载及哈希比对等站点测试由用户自行进行，助手不再主动追加或等待用户测试完成。没有用户反馈时记为“已部署上线，线上测试由用户进行”，不声称线上测试通过；用户后续另行要求线上排查时按当次任务处理。历史线上核验记录保留，此约定不构成后续卡牌的提前发布授权。
 
@@ -24,8 +24,9 @@ npm.cmd test
 npm.cmd run build
 npm.cmd run check:deploy
 npm.cmd run check:clean
+npm.cmd run test:browser
 git remote add origin https://github.com/llx5632/hengchao-beasts.git
-git add .github deploy dist scripts test package.json README.md DEPLOY.md .gitignore
+git add .github deploy dist scripts test e2e playwright.config.mjs package.json package-lock.json README.md DEPLOY.md .gitignore
 git commit -m "Prepare current game for GitHub Pages"
 git push -u origin main
 ```
@@ -40,7 +41,7 @@ git push -u origin main
 
 保持现有代理软件运行；Git 已配置的代理或环境变量优先。首次认证或登录过期时可能需要按 GitHub 提示登录。推送成功后，以 Actions 的绿色成功状态为发布完成标志。
 
-自动提交范围为 `.github/`、`deploy/`、`dist/`、`scripts/`、`test/`，以及 `package.json`、`README.md`、`DEPLOY.md`、`.gitignore`、`server.mjs` 和启动脚本；`qa/` 截图不会自动加入。测试、构建、远程同步检查或推送失败时会停止，不会强制覆盖远程；推送失败后可重新运行，之前的本地提交仍保留。
+自动提交范围为 `.github/`、`deploy/`、`dist/`、`scripts/`、`test/`、`e2e/`，以及 `playwright.config.mjs`、`package-lock.json`、`package.json`、`README.md`、`DEPLOY.md`、`.gitignore`、`server.mjs` 和启动脚本；`qa/` 截图不会自动加入。测试、构建、远程同步检查或推送失败时会停止，不会强制覆盖远程；推送失败后可重新运行，之前的本地提交仍保留。
 
 选择更新图片时需要 Python 和 Pillow；缺少依赖或压缩失败会停止发布。Pillow 在同一个 Python 环境中通常只需安装一次：`python -m pip install Pillow`，脚本不会每次安装。换用其他 Python 环境后需在新环境安装。跳过图片更新时不需要 Python 或 Pillow。图片更新只处理现有卡面映射中的卡牌，不会自动将候选卡加入卡池。
 
@@ -52,12 +53,13 @@ npm.cmd test
 npm.cmd run build
 npm.cmd run check:deploy
 npm.cmd run check:clean
-git add .github deploy dist scripts test package.json README.md DEPLOY.md .gitignore
+npm.cmd run test:browser
+git add .github deploy dist scripts test e2e playwright.config.mjs package.json package-lock.json README.md DEPLOY.md .gitignore
 git commit -m "Update game"
 git push
 ```
 
-`deploy/` 是随代码提交的预构建产物；Actions 检查规则后直接发布它。每次改动后必须重新运行 build。使用一键发布时，卡面修改后在开头输入 `1`；手动发布时先执行 `python scripts/compress-art.py 1024 85`（需要 Pillow），再 build。`deploy-art/` 为本机中间产物，不入库；现有卡图已包含在 `deploy/`。
+`deploy/` 是随代码提交的预构建产物；Actions检查规则、部署资源及本地桌面／手机浏览器冒烟后才上传发布。浏览器依赖用npm ci锁定安装，CI使用Chromium；失败报告、截图和trace保留7天。所有浏览器请求仅访问回环地址的部署包，不执行线上站点测试。每次改动后必须重新运行 build。使用一键发布时，卡面修改后在开头输入 `1`；手动发布时先执行 `python scripts/compress-art.py 1024 85`（需要 Pillow），再 build。`deploy-art/` 为本机中间产物，不入库；现有卡图已包含在 `deploy/`。
 
 2026-11-04起，规则测试与资产验收分开：`npm.cmd test`只依赖仓库内文件；`npm.cmd run check:art`在本机检查GDD原始PNG（可附卡牌ID，如`npm.cmd run check:art -- jiejing`），不在CI运行。构建后须依次执行`npm.cmd run check:deploy`和`npm.cmd run check:clean`；后者仅复制发布范围内文件到临时隔离目录，重跑全量测试及部署检查，不携带GDD原图、deploy-art或QA资料，结束后清理临时目录。一键发布已自动串联这两项，任何失败均在提交、推送前停止；GitHub Actions也会在上传前检查已提交部署资源。
 

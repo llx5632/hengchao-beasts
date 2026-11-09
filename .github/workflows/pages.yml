@@ -27,6 +27,24 @@ jobs:
         run: node --test test/*.test.mjs
       - name: Check committed deploy assets
         run: node scripts/check-deploy.mjs
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install browser test dependencies
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Local desktop and mobile browser smoke
+        run: npm run test:browser
+      - name: Keep browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-smoke-failure
+          path: browser-results/
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload prebuilt game

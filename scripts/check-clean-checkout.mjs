@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {publishPaths} from './publish.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url)),prefix='hengchao-ci-',temp=await mkdtemp(join(tmpdir(),prefix));
+const browser=process.argv.includes('--browser');
 try{
   for(const path of publishPaths){
     const source=join(root,path);
@@ -16,6 +17,16 @@ try{
     const result=spawnSync(process.execPath,args,{cwd:temp,env:{...process.env,CI:'true'},stdio:'inherit'});
     if(result.error)throw result.error;
     if(result.status!==0)throw new Error(`干净检出检查失败（退出码${result.status}）；尚未提交或推送。`);
+  }
+  if(browser){
+    if(!process.env.npm_execpath)throw new Error('请通过 npm.cmd run check:clean:browser 调用，以使用当前npm安装锁定依赖。');
+    for(const args of [[process.env.npm_execpath,'ci','--no-audit','--no-fund'],['scripts/check-browser.mjs']]){
+      const result=spawnSync(process.execPath,args,{cwd:temp,env:{...process.env,CI:'true'},stdio:'inherit'});
+      if(args[0]==='scripts/check-browser.mjs')await cp(join(temp,'browser-results'),join(root,'browser-results','clean'),{recursive:true})
+        .catch(error=>{if(error.code!=='ENOENT')throw error;});
+      if(result.error)throw result.error;
+      if(result.status!==0)throw new Error(`隔离浏览器检查失败（退出码${result.status}），未提交或推送。`);
+    }
   }
   console.log('干净检出检查通过：仅发布范围内文件，无仓库外原图、deploy-art或QA资料依赖。');
 }finally{
