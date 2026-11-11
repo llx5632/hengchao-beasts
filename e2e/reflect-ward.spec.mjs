@@ -11,7 +11,7 @@ function scenario(cards=['huangjitun','panjia'],hp=null,reflectPlayer=null){
   value.match=m;return value;
 }
 
-test('簧棘鲀进入28卡图鉴、完整卡面与战斗选卡',async({page},info)=>{
+test('簧棘鲀进入当前图鉴、完整卡面与战斗选卡',async({page},info)=>{
   await openSession(page);
   await page.getByRole('button',{name:'异兽图鉴',exact:true}).click();
   await expect(page.locator('.beast-card')).toHaveCount(CARDS.length);

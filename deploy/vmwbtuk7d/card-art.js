@@ -1,5 +1,6 @@
 // Current card faces generated from the approved concept style. Deploy build: ASCII names, relative paths.
 export const CURRENT_ART = Object.freeze({
+  "chihoubaolong": "art/chihoubaolong.webp",
   "tanling": "art/tanling.webp",
   "lujia": "art/lujia.webp",
   "duhuolu": "art/duhuolu.webp",
