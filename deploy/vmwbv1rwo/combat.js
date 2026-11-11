@@ -40,6 +40,8 @@ export function twinBloodBonus(battle,player,skill){
 }
 // A current public-value condition, never a stored buff or a retreat reaction.
 export function pursuitBonus(battle,player,skill){return skill.effect==='pursuit'&&battle.remaining[1-player]===1?skill.amount:0;}
+// Percentage is rounded and capped before joining the single direct skill hit.
+export function percentMaxHpBonus(maxHp,skill){return skill.effect==='max-hp'?Math.min(50,Math.floor(maxHp*skill.amount/100)):0;}
 // The attack-start snapshot gates both the bonus and the later penalty grant.
 export function overloadBonus(battle,player,skill){return skill.effect==='overload'&&!(battle.cooling?.[player]>0)?skill.amount:0;}
 export function coolingMultiplier(battle,player){return battle.cooling?.[player]>0?(battle.coolingMultiplier?.[player]??1.5):1;}
@@ -51,12 +53,12 @@ export function combatStatusKey(s){return JSON.stringify([s.cards,s.twinPairs??n
 export function combatStatusValue(s,p){
   const reflect=i=>{
     if(!s.reflectWard?.[i])return 0;
-    const target=1-i,hit=Math.max(...CARD[s.cards[target]].skills.map(skill=>(skill.damage*(skill.effect==='dice'?4.25:1)+pursuitBonus(s,target,skill)+twinBloodBonus(s,target,skill)+overloadBonus(s,target,skill))*twinDamageMultiplier(skill,CARD[s.cards[i]].element)*(s.weaken?.[target] ? .75 : 1)*coolingMultiplier(s,i)));
+    const target=1-i,hit=Math.max(...CARD[s.cards[target]].skills.map(skill=>(skill.damage*(skill.effect==='dice'?4.25:1)+pursuitBonus(s,target,skill)+twinBloodBonus(s,target,skill)+overloadBonus(s,target,skill)+percentMaxHpBonus(CARD[s.cards[i]].hp,skill))*twinDamageMultiplier(skill,CARD[s.cards[i]].element)*(s.weaken?.[target] ? .75 : 1)*coolingMultiplier(s,i)));
     const received=Math.min(s.hp[i],Math.max(0,hit-(s.shield?.[i]??0))),raw=Math.max(0,Math.min(s.reflectCap[i],Math.floor(received*s.reflectRate[i]/100))-(s.shield?.[target]??0));
     return Math.min(s.hp[target],raw-(s.seal?.[target]?Math.min(30,Math.floor(raw/2)):0))*.8;
   };
   const ward=i=>{const target=1-i,raw=Math.max(0,(s.deathPower?.[i]??0)-(s.shield?.[target]??0)),deferred=s.seal?.[target]?Math.min(30,Math.floor(raw/2)):0;return s.deathWard?.[i]&&s.hp[target]<=raw-deferred+(raw-deferred>0?(s.debt?.[target]??0):0)?15*s.deathWard[i]:0;};
-  const coolingCost=i=>s.cooling?.[i]>0?Math.min(s.hp[i],Math.max(...CARD[s.cards[1-i]].skills.map(skill=>skill.damage*(skill.effect==='dice'?4.25:1)+overloadBonus(s,1-i,skill)))*(coolingMultiplier(s,i)-1)*s.cooling[i]):0;
+  const coolingCost=i=>s.cooling?.[i]>0?Math.min(s.hp[i],Math.max(...CARD[s.cards[1-i]].skills.map(skill=>skill.damage*(skill.effect==='dice'?4.25:1)+overloadBonus(s,1-i,skill)+percentMaxHpBonus(CARD[s.cards[i]].hp,skill)))*(coolingMultiplier(s,i)-1)*s.cooling[i]):0;
   const v=i=>ward(i)-coolingCost(i)+(s.reviveWard?.[i]?Math.floor(CARD[s.cards[i]].hp/2)*.8:0)+(s.charge?.[i]?20:0)+(s.shield?.[i]??0)*.7+Math.min(30,Math.floor((s.echo?.[i]??0)/2))*.6+(s.root?.[i]??0)*14+(s.seal?.[i]?15:0)-(s.debt?.[i]??0)-(s.burn?.[i]??0)*10-(s.weaken?.[i]??0)*6-(s.mark?.[i]===1-i?18:0)+((s.wind?.[i]??-1)<0?0:[18.75,37.5,50][s.wind[i]])+(s.prediction?.[i]?23:0)+(s.foresight?.[i]??0);
   return v(p)+reflect(p)-v(1-p)-reflect(1-p);
 }
@@ -168,6 +170,8 @@ export function resolveCombatAction(battle,player,action){
     return state.remaining[player]===0?outcome(true,null):actionEnd();
   }
   const skill=CARD[state.cards[player]].skills[action.skill];let bonus=0;
+  const targetMaxHp=CARD[state.cards[other]].hp,percentBonus=percentMaxHpBonus(targetMaxHp,skill);
+  if(skill.effect==='max-hp'){bonus+=percentBonus;events.push(`目标最大HP${targetMaxHp}×${skill.amount}%向下取整${Math.floor(targetMaxHp*skill.amount/100)}，追加封顶50，本次＋${percentBonus}，合为一笔直接伤害`);}
   const overload=overloadBonus(state,player,skill);if(overload){bonus+=overload;events.push(`无散热，沸喉焚咬伤害＋${overload}`);}
   const blood=twinBloodBonus(state,player,skill);
   if(blood){bonus+=blood;events.push(`${skill.effect==='twin-healthy'?'对方HP高于半血，扬锋':'对方HP不高于半血，伏锋'}优势生效，伤害＋${blood}`);}
@@ -197,7 +201,7 @@ export function resolveCombatAction(battle,player,action){
   if(state.shield[other]){state.shield[other]=0;events.push(`${label(other)}的护盾抵消${blocked}伤害，已消耗`);}
   const damage=receiveDamage(other,Math.max(0,afterReduction-blocked),true);
   const directDeferred=effects.deferred[other],directSettled=effects.settled[other];
-  breakdown={base:skill.damage,die,bonus,raw,elementMultiplier,multiplier,vulnerabilityMultiplier,afterReduction,blocked,damage,directDeferred,directSettled,directLethal:state.hp[other]===0};text=`${skill.name}造成 ${damage} 伤害（直接）`;
+  breakdown={base:skill.damage,targetMaxHp,percentBonus,die,bonus,raw,elementMultiplier,multiplier,vulnerabilityMultiplier,afterReduction,blocked,damage,directDeferred,directSettled,directLethal:state.hp[other]===0};text=`${skill.name}造成 ${damage} 伤害（直接）`;
   // Only the primary opposing skill hit can trigger a prepared reflection. Consume
   // before damage; reflection/debt/death reactions never recurse through this gate.
   if(state.reflectWard[other]&&damage>0){
