@@ -1,6 +1,6 @@
 import { CARD, TWIN_PARTNERS } from './data.js';
 export function battleEndedBySurrender(m){return Boolean(m.mode==='battle'&&m.status==='finished'&&m.transfers?.some(t=>t.reason==='战斗投降'));}
-const empty=()=>({charge:[false,false],shield:[0,0],echo:[0,0],burn:[0,0],mark:[null,null],weaken:[0,0],root:[0,0],seal:[false,false],debt:[0,0],wind:[-1,-1],prediction:[null,null],foresight:[0,0],deathWard:[0,0],deathUsed:[false,false],deathPower:[0,0],reviveWard:[false,false],reviveUsed:[false,false]});
+const empty=()=>({charge:[false,false],shield:[0,0],echo:[0,0],burn:[0,0],mark:[null,null],weaken:[0,0],root:[0,0],seal:[false,false],debt:[0,0],wind:[-1,-1],prediction:[null,null],foresight:[0,0],deathWard:[0,0],deathUsed:[false,false],deathPower:[0,0],reviveWard:[false,false],reviveUsed:[false,false],reflectWard:[false,false],reflectRate:[0,0],reflectCap:[0,0],reflectSource:[null,null]});
 // One invocation per resolved, non-tied RPS. Preview/AI use the same transition.
 export function applyRpsLoss(battle,loser){
   const wind=[...(battle.wind??[-1,-1])];
@@ -46,12 +46,19 @@ export function battleActions(battle,player){
 export function clearCombatStatuses(s){Object.assign(s,empty());}
 export function combatStatusKey(s){return JSON.stringify([s.cards,s.twinPairs??null,...Object.entries(empty()).map(([k,v])=>s[k]??v)]);}
 export function combatStatusValue(s,p){
+  const reflect=i=>{
+    if(!s.reflectWard?.[i])return 0;
+    const target=1-i,hit=Math.max(...CARD[s.cards[target]].skills.map(skill=>(skill.damage*(skill.effect==='dice'?4.25:1)+pursuitBonus(s,target,skill)+twinBloodBonus(s,target,skill))*twinDamageMultiplier(skill,CARD[s.cards[i]].element)*(s.weaken?.[target] ? .75 : 1)));
+    const received=Math.min(s.hp[i],Math.max(0,hit-(s.shield?.[i]??0))),raw=Math.max(0,Math.min(s.reflectCap[i],Math.floor(received*s.reflectRate[i]/100))-(s.shield?.[target]??0));
+    return Math.min(s.hp[target],raw-(s.seal?.[target]?Math.min(30,Math.floor(raw/2)):0))*.8;
+  };
   const ward=i=>{const target=1-i,raw=Math.max(0,(s.deathPower?.[i]??0)-(s.shield?.[target]??0)),deferred=s.seal?.[target]?Math.min(30,Math.floor(raw/2)):0;return s.deathWard?.[i]&&s.hp[target]<=raw-deferred+(raw-deferred>0?(s.debt?.[target]??0):0)?15*s.deathWard[i]:0;};
   const v=i=>ward(i)+(s.reviveWard?.[i]?Math.floor(CARD[s.cards[i]].hp/2)*.8:0)+(s.charge?.[i]?20:0)+(s.shield?.[i]??0)*.7+Math.min(30,Math.floor((s.echo?.[i]??0)/2))*.6+(s.root?.[i]??0)*14+(s.seal?.[i]?15:0)-(s.debt?.[i]??0)-(s.burn?.[i]??0)*10-(s.weaken?.[i]??0)*6-(s.mark?.[i]===1-i?18:0)+((s.wind?.[i]??-1)<0?0:[18.75,37.5,50][s.wind[i]])+(s.prediction?.[i]?23:0)+(s.foresight?.[i]??0);
-  return v(p)-v(1-p);
+  return v(p)+reflect(p)-v(1-p)-reflect(1-p);
 }
 export function combatStatuses(s,p,viewer=0){
   const c=CARD[s.cards[p]],out=[],other=1-p,add=(id,label,active,detail)=>out.push({id,label,active,detail});
+  if(c.id==='huangjitun'||s.reflectWard?.[p])add('reflect-ward',s.reflectWard?.[p]?`反刺待发 · ${s.reflectRate[p]}% · 上限${s.reflectCap[p]} · 致命可触发`:'反刺：未准备',!!s.reflectWard?.[p],`来源：${CARD[s.reflectSource?.[p]]?.name??'簧棘鲀'}的绷棘待发。下次受到对方技能的正数实际直接扣血时，按100%反伤、原始反伤最多50，消耗一次；致命受击仍先反刺再判胜负。原受伤照常承受，不含溢出、旧伤、持续伤害、自伤、殒爆或另一笔反伤，不递归。0直接扣血不消费；不叠加，持续至触发或战斗结束，触发后可重新花一次进攻准备。反刺受目标护盾与封伤影响；双方归零平局保卡。`);
   if(c.id==='cangquanyuan'||s.reviveWard?.[p])add('revive-ward',s.reviveWard?.[p]?'回生伏印：待触发':s.reviveUsed?.[p]?'回生伏印：本场已用':s.hp[p]*2<c.hp?'回生伏印：可施放':'回生伏印：未到半血以下',!!s.reviveWard?.[p],'来源：回生伏印。HP严格低于半血时每战仅可施放一次；先造成15基础伤害，战斗继续则挂印，覆盖当次行动末，持续到触发或战斗结束。有效印使致命伤归零（含恰好归零）后、最终胜负前，HP直接恢复至最大HP的50%，无论溢出多少均不再扣除该次溢出。保留其他状态，不补行动；同批持续伤害双方归零仍平局，不回生。投降、属性直胜和成功撤退不触发。');
   if(c.id==='jinnangying'||s.deathWard?.[p])add('death-ward',s.deathWard?.[p]?`伏印 · 余${s.deathWard[p]}次双方行动 · 殒爆${s.deathPower[p]}`:s.deathUsed?.[p]?'伏印：本局挂印已用':'伏印：本局尚可挂印1次',!!s.deathWard?.[p],'来源：殒爆伏印。本局仅取得一次，不刷新、不返还。施放即生效并覆盖当次行动末，当次不扣次数；随后2次任一方进攻或未成功撤退内HP归零，先殒爆60再判胜负。末次先检查死亡后到期；猜拳、展示与等待不计时。殒爆可被护盾／封伤抵挡，不受攻击增减影响。双方归零平局保卡，对方存活自己仍败。投降、属性直胜、成功撤退不触发。');
   if(TWIN_PARTNERS[c.id]){const partner=CARD[TWIN_PARTNERS[c.id]],ready=canTwinShift(s,p),shift=c.skills.find(skill=>skill.effect==='twin-shift');add('twin',ready?`双生：可转为${partner.name}`:`双生：缺少${partner.name}`,ready,`伙伴：${partner.name}。${ready?`已绑定实际伙伴谱印；使用${shift.name}先造成${shift.damage}基础伤害，战斗继续则转换，占一次进攻。`:`未绑定伙伴，${shift.name}不可用。`}转换保留HP、伤势、剩余撤退、全部状态及来源计数；战败或投降只失去当前形态对应的实际卡牌。双方同次持续伤害归零仍平局保卡。`);}
@@ -78,7 +85,7 @@ export function resolveCombatAction(battle,player,action){
   const state={...battle,dicePending:null,cards:[...battle.cards],hp:[...battle.hp],remaining:[...battle.remaining],...(battle.instances?{instances:[...battle.instances]}:{})};
   if(action.type==='attack'&&!skillAvailable(battle,player,action.skill))throw new Error(skillUnavailableReason(battle,player,action.skill));
   for(const [k,v] of Object.entries(empty()))state[k]=[...(battle[k]??v)];
-  const other=1-player,startWard=[...state.deathWard],startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],waiting=state.prediction[other],events=[],effects={healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0],deathDamage:[0,0],deathTriggered:[false,false],reviveTriggered:[false,false],reviveHealing:[0,0],directEnded:false};
+  const other=1-player,startWard=[...state.deathWard],startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],waiting=state.prediction[other],events=[],effects={healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0],deathDamage:[0,0],deathTriggered:[false,false],reviveTriggered:[false,false],reviveHealing:[0,0],reflectTriggered:[false,false],reflectBasis:[0,0],reflectRaw:[0,0],reflectBlocked:[0,0],reflectDamage:[0,0],directEnded:false};
   const label=p=>CARD[state.cards[p]].name;let text='',breakdown=null;
   // Each positive damage event consumes existing debt; newly deferred damage waits
   // for another event, including a later burn event in this same action.
@@ -182,7 +189,18 @@ export function resolveCombatAction(battle,player,action){
   const damage=receiveDamage(other,Math.max(0,afterReduction-blocked),true);
   const directDeferred=effects.deferred[other],directSettled=effects.settled[other];
   breakdown={base:skill.damage,die,bonus,raw,elementMultiplier,multiplier,afterReduction,blocked,damage,directDeferred,directSettled,directLethal:state.hp[other]===0};text=`${skill.name}造成 ${damage} 伤害（直接）`;
-  if(state.hp[other]===0){const death=deathOutcome();if(death){effects.directEnded=true;return death;}}
+  // Only the primary opposing skill hit can trigger a prepared reflection. Consume
+  // before damage; reflection/debt/death reactions never recurse through this gate.
+  if(state.reflectWard[other]&&damage>0){
+    const power=Math.min(state.reflectCap[other],Math.floor(damage*state.reflectRate[other]/100));
+    state.reflectWard[other]=false;state.reflectRate[other]=0;state.reflectCap[other]=0;state.reflectSource[other]=null;
+    effects.reflectTriggered[other]=true;effects.reflectBasis[other]=damage;effects.reflectRaw[player]=power;
+    const blocked=Math.min(power,state.shield[player]);effects.reflectBlocked[player]=blocked;
+    if(state.shield[player]){state.shield[player]=0;events.push(`${label(player)}的护盾抵消反刺${blocked}伤害，已消耗`);}
+    effects.reflectDamage[player]=receiveDamage(player,Math.max(0,power-blocked),true);
+    events.push(`${label(other)}消耗反刺，按实际直接扣血${damage}反伤${power}；${label(player)}实际受到反刺${effects.reflectDamage[player]}伤害`);
+  }
+  if(state.hp.some(h=>h===0)){const death=deathOutcome();if(death){effects.directEnded=true;return death;}}
   if(CARD[state.cards[other]].id==='mingnang'&&damage>0){const old=state.echo[other];state.echo[other]=damage;events.push(`${label(other)}回响记录${old?'由'+old+'更新为':'为'}${damage}`);}
   if(skill.effect==='twin-shift'){
     const old=CARD[state.cards[player]].name,partner=TWIN_PARTNERS[state.cards[player]];
@@ -218,6 +236,10 @@ export function resolveCombatAction(battle,player,action){
     else{state.deathUsed[player]=true;state.deathWard[player]=2;state.deathPower[player]=skill.amount;events.push(`${label(player)}获得伏印：当次行动末立即有效，随后2次双方行动，殒爆${skill.amount}；本局挂印资格已用`);}
   }
   if(skill.effect==='revive-ward'){state.reviveWard[player]=true;events.push(`${label(player)}获得回生伏印：待触发，立即生效；本场施放资格已用`);}
+  if(skill.effect==='reflect-ward'){
+    if(state.reflectWard[player])events.push(`${label(player)}已有反刺，不叠加、不补次数`);
+    else{state.reflectWard[player]=true;state.reflectRate[player]=100;state.reflectCap[player]=skill.amount;state.reflectSource[player]=state.cards[player];events.push(`${label(player)}获得一次反刺：实际直接扣血100%，上限${skill.amount}，致命仍触发；持续至触发或战斗结束`);}
+  }
   return actionEnd();
 }
 export function previewSkill(battle,player,skillIndex,die=null){
@@ -227,7 +249,7 @@ export function previewSkill(battle,player,skillIndex,die=null){
   }
   const other=1-player,skill=CARD[battle.cards[player]].skills[skillIndex],r=resolveCombatAction(battleForViewer(battle,player),player,{type:'attack',skill:skillIndex,...(die===null?{}:{die})});
   const directLethal=r.breakdown.directLethal;
-  return {reviveTriggered:r.effects.reviveTriggered,reviveHealing:r.effects.reviveHealing,transformed:r.effects.transformed??null,deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,deathDamage:r.effects.deathDamage,deathTriggered:r.effects.deathTriggered,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:r.effects.directEnded&&['revive-ward','heal','delay','charge','shield','burn','mark','weaken','root','seal','wind','predict','twin-shift','death-ward'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
+  return {reflectTriggered:r.effects.reflectTriggered,reflectBasis:r.effects.reflectBasis,reflectRaw:r.effects.reflectRaw,reflectBlocked:r.effects.reflectBlocked,reflectDamage:r.effects.reflectDamage,reviveTriggered:r.effects.reviveTriggered,reviveHealing:r.effects.reviveHealing,transformed:r.effects.transformed??null,deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,deathDamage:r.effects.deathDamage,deathTriggered:r.effects.deathTriggered,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:r.effects.directEnded&&['revive-ward','heal','delay','charge','shield','burn','mark','weaken','root','seal','wind','predict','twin-shift','death-ward','reflect-ward'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
 }
 
 export function combatOutcomes(battle,player,action){

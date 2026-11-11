@@ -18,7 +18,7 @@ npm.cmd start
 npm.cmd test
 ```
 
-## 可重复的本地浏览器验收（2026-11-06新增，尚未推送）
+## 可重复的本地浏览器验收（2026-11-09已发布，2026-11-11扩充）
 
 游戏运行和 `npm.cmd test` 仍无需依赖；浏览器验收使用锁定版本的Playwright开发依赖。首次先执行 `npm.cmd ci`。Windows默认复用本机已安装的Edge；没有Edge的环境先执行 `npx.cmd playwright install chromium`，Linux首次使用 `npx playwright install --with-deps chromium`。测试每次启动独立浏览器上下文，不读取个人浏览器收藏。
 
@@ -28,13 +28,13 @@ npm.cmd run check:clean:browser
 npm.cmd run test:browser:report
 ```
 
-第一条检查现有 `deploy/`，自动启动并停止仅绑定回环地址的服务器，使用 `/hengchao-beasts/` 项目子路径，运行桌面1280×800和手机390×844各8项，共16项。修改游戏源码后先按原流程重新build；浏览器检查不替你构建，也不访问线上站点。第二条仅复制发布范围文件，在隔离目录安装锁定开发依赖并运行规则、部署及同一套浏览器检查；无需上级GDD原图、deploy-art或本机QA资料。
+第一条检查现有 `deploy/`，自动启动并停止仅绑定回环地址的服务器，使用 `/hengchao-beasts/` 项目子路径，运行桌面1280×800和手机390×844各13项，共26项。修改游戏源码后先按原流程重新build；浏览器检查不替你构建，也不访问线上站点。第二条仅复制发布范围文件，在隔离目录安装锁定开发依赖并运行规则、部署及同一套浏览器检查；无需上级GDD原图、deploy-art或本机QA资料。
 
-覆盖：27卡图鉴与四张归档卡放大、拼点选卡筛选与常用阵容刷新、活动战斗续局、弹窗及公开记录暂停AI、阵容命名保存失败恢复、草稿重试保存、完整战斗赢卡、完整五小局拼点及实例守恒。页面错误、失败资源或横向溢出会失败；测试不自动重试来掩盖失败。
+覆盖：28卡图鉴与正式卡放大、簧棘鲀选卡及准备／重施／状态刷新／致命平局／弱攻治疗／掷骰反刺预告与真实转卡、拼点选卡筛选与常用阵容刷新、活动战斗续局、弹窗及公开记录暂停AI、阵容命名保存失败恢复、草稿重试保存、完整战斗赢卡、完整五小局拼点及实例守恒。页面错误、失败资源或横向溢出会失败；测试不自动重试来掩盖失败。
 
 报告保存在忽略入库的 `browser-results/`，失败保留截图和trace；隔离运行结果复制到 `browser-results/clean/`。普通报告用第三条打开，隔离报告用 `npx.cmd playwright show-report browser-results/clean/report` 查看。只跑手机可执行 `npm.cmd run test:browser -- --project=mobile-390`；端口占用时在本次终端设置 `$env:BROWSER_TEST_PORT='4174'`，可用 `$env:BROWSER_TEST_CHANNEL='chromium'` 明确使用已安装的Playwright Chromium。
 
-一键发布在构建、部署及隔离规则检查后，新增本地浏览器门禁，通过才提交推送；Actions在上传前再次对仓库内部署包运行同样16项，失败保留7天检查产物。本轮仅新增本地验收工具及待提交的CI配置，未推送或发布。手机检查为Chromium内核的390px触屏模拟，不能替代真机及Safari测试。
+一键发布在构建、部署及隔离规则检查后，新增本地浏览器门禁，通过才提交推送；Actions在上传前再次对仓库内部署包运行同样26项，失败保留7天检查产物。浏览器工具及CI门禁已于2026-11-09随325bc7c发布；本轮新增反刺用例沿用该流程。手机检查为Chromium内核的390px触屏模拟，不能替代真机及Safari测试。
 
 配置与用例：[playwright.config.mjs](playwright.config.mjs) · [smoke.spec.mjs](e2e/smoke.spec.mjs)。测试服务器与可控时钟按[Playwright官方文档](https://playwright.dev/docs/test-webserver)及[Clock说明](https://playwright.dev/docs/clock)使用。
 
@@ -47,6 +47,12 @@ npm.cmd run test:browser:report
 存档读写和归一化移入 `dist/storage.js`，补发清单集中于 `dist/session-migrations.js`，保留历史补发标记、实例ID与规则版本；卡牌、图鉴及通用渲染拆至 `card-view.js`、`catalog-view.js`、`ui.js`。存档格式、对局规则与卡牌数值保持。
 
 本机整理正式索引和离线图鉴可执行 `npm.cmd run sync:art`，该命令需要上级GDD原图，不进入CI。规则、原图、部署及隔离检查仍分别使用现有命令，验证结果见 `qa/maintenance-verification.json`。以下带日期章节保留原始制作及发布语境，当前状态以开头主文档入口为准。
+
+## 簧棘鲀「单次反刺」（2026-11-11）
+
+新增中阶水属性簧棘鲀，HP110、撤退3、0.55m／18kg；破浪冲吻40，绷棘待发15，准备下一次正数实际技能直接扣血100%反伤、上限50，致命仍触发，不叠加且持续至触发或战斗结束。反伤受护盾／封伤影响，不递归、不计溢出或旧伤，不响应持续伤害及殒爆；原攻击及反刺双归零平局保卡，单归零按有效回生／殒爆处理，双方存活才继续原行动。拼点最高基础伤害40。
+
+卡面原样正式归档，28卡／56技能、实伤及骰点分支、反刺状态、两档AI、旧存档一次补发均已接入。389项规则（34项反刺专项）、28张原图、部署资源、隔离检出及桌面／390px共26项浏览器交互通过；实际发布结果见主文档第2.4.7节及qa/huangji-release-verification.json，线上测试由用户进行。
 
 ## 扬锋螳／伏锋螳「血线互补双生」（2026-11-06）
 

@@ -151,7 +151,11 @@ function battleStatusView(b,p){
   return `<div class="combat-statuses" aria-label="${name(p)}的技能状态">${combatStatuses(b,p).map(s=>`<button class="combat-status ${s.active?'status-active':''}" data-action="battle-status" data-player="${p}" data-kind="${s.id}" aria-label="查看${name(p)}的${s.label}">${s.label}<span aria-hidden="true"> ⓘ</span></button>`).join('')}</div>`;
 }
 function skillButton(battle,p,skill,index){
-  if(skill.effect==='dice'){const range=previewSkill(battle,p,index);return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="掷金碰运：可能实际伤害${range.minDamage}至${range.maxDamage}"><em>${range.minDamage}～${range.maxDamage}<small>可能实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-notice">掷出结果后可保留，或重掷一次并接受新结果；全程只算一次进攻。</span>${range.outcomes.some(r=>r.selfDefeat)?'<span class="skill-notice risk">未直接致胜时，行动末持续伤害可能使自己归零。</span>':''}</button>`;}
+  if(skill.effect==='dice'){
+    const range=previewSkill(battle,p,index),reflected=range.outcomes.some(r=>r.reflectTriggered.some(Boolean));
+    const reactions=reflected?range.outcomes.map((r,i)=>`<span class="skill-notice">骰点${i+1}：实际直接伤害${r.damage}；反刺原始${r.reflectRaw[p]}、护盾抵消${r.reflectBlocked[p]}、实际反伤${r.reflectDamage[p]}；自己最终HP${r.ownHp}、对方${r.targetHp}${r.draw?'；平局保卡':r.selfDefeat?'；自己战败':r.lethal?'；自己获胜':''}。</span>`).join(''):'';
+    return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="掷金碰运：可能实际伤害${range.minDamage}至${range.maxDamage}${reflected?'，各骰点的反刺与最终HP见下方预览':''}"><em>${range.minDamage}～${range.maxDamage}<small>可能实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-notice">掷出结果后可保留，或重掷一次并接受新结果；全程只算一次进攻。</span>${reactions}${range.outcomes.some(r=>r.selfDefeat)?`<span class="skill-notice risk">${reflected?'警告：部分骰点会因反刺及后续结算使自己战败。':'未直接致胜时，行动末持续伤害可能使自己归零。'}</span>`:''}</button>`;
+  }
   if(!skillAvailable(battle,p,index))return `<button class="skill-button" disabled aria-label="${skill.name}不可用：${skillUnavailableReason(battle,p,index)}"><em>—</em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-notice">${skillUnavailableReason(battle,p,index)}</span></button>`;
   const actual=previewSkill(battle,p,index),b=actual.breakdown,notes=[];
   if((battle.wind?.[p]??-1)>=0)notes.push(`本次消耗逆风蓄势${battle.wind[p]}层，伤害＋${battle.wind[p]*25}；0层也结束旧蓄势。`);
@@ -160,10 +164,10 @@ function skillButton(battle,p,skill,index){
   if(skill.effect==='predict'&&!actual.effectSkipped)notes.push(battle.prediction?.[p]?'保留已封存预判，不改选、不叠加。':'点击后秘密选择预判进攻或撤退，与本次技能一并封存。');
   if(battle.prediction?.[1-p])notes.push('对方的秘密预判将在本次行动结束后揭晓。');
   if(actual.transformed)notes.push(`伤害后转为${CARD[actual.transformed.to].name}，继承全部战斗状态；若战败，失去${CARD[actual.transformed.to].name}。`);
-  if(actual.effectSkipped)notes.push(actual.deathTriggered.some(Boolean)?'直接伤害使对方归零，先处理伏印；本招附加效果不再触发。':'伤害致胜后立即结算，附加效果不再触发。');
+  if(actual.effectSkipped)notes.push(actual.reflectTriggered.some(Boolean)?'先完成反刺及死亡反应，本次战斗结束，附加效果不再触发。':actual.deathTriggered.some(Boolean)?'直接伤害使对方归零，先处理伏印；本招附加效果不再触发。':'伤害致胜后立即结算，附加效果不再触发。');
   else if(actual.lethal)notes.push('本次可击败对方，结束对局。');
-  if(actual.selfDefeat)notes.push(actual.deathTriggered.some(Boolean)?'警告：死亡与殒爆结算后自己归零、对方仍存活，判负失卡。':'警告：行动后持续伤害会使自己HP归零，判负失卡。');
-  if(actual.draw)notes.push(actual.deathTriggered.some(Boolean)?'殒爆后双方HP归零，本次判平局，各自保留卡牌。':'双方持续伤害同时归零，本次判平局，各自保留卡牌。');
+  if(actual.selfDefeat)notes.push(actual.reflectTriggered.some(Boolean)?'警告：反刺及死亡反应后自己归零、对方仍存活，判负失卡。':actual.deathTriggered.some(Boolean)?'警告：死亡与殒爆结算后自己归零、对方仍存活，判负失卡。':'警告：行动后持续伤害会使自己HP归零，判负失卡。');
+  if(actual.draw)notes.push(actual.reflectTriggered.some(Boolean)?'反刺及死亡反应后双方HP归零，本次平局，各自保留卡牌。':actual.deathTriggered.some(Boolean)?'殒爆后双方HP归零，本次判平局，各自保留卡牌。':'双方持续伤害同时归零，本次判平局，各自保留卡牌。');
   if(skill.effect==='heal'&&!actual.effectSkipped)notes.push(actual.healing===0?'当前已满血，本次回血为 0。':`实际回血 ${actual.healing}`);
   if(skill.effect==='delay'&&!actual.effectSkipped)notes.push(actual.delay===0?'对方剩余撤退已达上限，本次阻退为 0。':`对方剩余撤退＋${actual.delay}`);
   if(skill.effect==='charge'&&!actual.effectSkipped)notes.push(battle.charge?.[p]?'已有蓄势，不叠加。':'获得蓄势：下次裂风突袭＋30。');
@@ -175,6 +179,8 @@ function skillButton(battle,p,skill,index){
   if(['twin-healthy','twin-wounded'].includes(skill.effect))notes.push(`${battle.hp[1-p]*2>CARD[battle.cards[1-p]].hp?'对方高于半血，扬锋优势':'对方不高于半血，伏锋优势'}；本招${twinBloodBonus(battle,p,skill)?'伤害＋35至60':'未强化，基础25'}。只按进攻开始时判断，本次过半不重算。`);
   if(skill.effect==='twin-shift'&&['yangfengtang','fufengtang'].includes(battle.cards[p])&&!actual.effectSkipped&&!actual.lethal&&!actual.selfDefeat&&!actual.draw)notes.push(`转换后对方${actual.targetHp*2>CARD[battle.cards[1-p]].hp?'高于半血，扬锋优势':'不高于半血，伏锋优势'}；错锋相替基础15不享受血线强化。`);
   if(skill.effect==='death-ward'&&!actual.effectSkipped)notes.push(battle.deathUsed?.[p]?'本局挂印资格已用，本次只造成基础伤害，不刷新、不补次。':'本局仅挂印1次；当次行动末立即有效，随后2次任一方实际行动内HP归零时殒爆60。护盾与封伤可抵挡；成功撤退、投降和属性直胜不触发。');
+  if(skill.effect==='reflect-ward'&&!actual.effectSkipped)notes.push(battle.reflectWard?.[p]?'已有反刺，保留旧状态，不叠加、不补次数。':'获得一次反刺：下次正数实际技能直接扣血100%反伤，最多50，致命仍触发；持续至触发或战斗结束。');
+  for(const q of [0,1])if(actual.reflectTriggered[q])notes.push(`${name(q)}消耗反刺：实际直接扣血${actual.reflectBasis[q]}，原始反伤${actual.reflectRaw[1-q]}，护盾抵消${actual.reflectBlocked[1-q]}，实际反刺伤害${actual.reflectDamage[1-q]}；最终HP计入封伤、旧伤及死亡反应。`);
   if(skill.effect==='revive-ward'&&!actual.effectSkipped)notes.push('每战仅施放1次；本次行动末立即有效，之后HP归零时恢复至最大HP的50%，致命伤溢出不再扣除。伏印持续到触发或战斗结束，保留其他状态，不补行动。');
   for(const q of [0,1])if(actual.reviveTriggered[q])notes.push(`${name(q)}回生伏印触发，HP恢复至最大HP的50%（${actual.reviveHealing[q]}）；最终HP已计入本行动其余应结伤害。`);
   for(const q of [0,1])if(actual.deathTriggered[q])notes.push(`${name(q)}伏印触发；${name(1-q)}殒爆实际直接受伤${actual.deathDamage[1-q]}，最终HP已计入防护及旧伤。`);
@@ -195,7 +201,7 @@ function skillButton(battle,p,skill,index){
   const afterShield=Math.max(0,b.afterReduction-b.blocked);
   const immediate=afterShield-b.directDeferred;
   const calculation=`基础${b.base}${b.bonus?`＋强化${b.bonus}`:''}${b.elementMultiplier!==1?`×属性倍率${b.elementMultiplier}`:''}${b.multiplier!==1?`→削弱25%后${b.afterReduction}`:''}${b.blocked?`－护盾${b.blocked}`:''}${b.directDeferred?`－暂存${b.directDeferred}`:''}＝${immediate}${actual.damage<immediate?`；实际直接扣血受剩余HP限制为${actual.damage}`:''}${b.directSettled?`；旧伤另扣${b.directSettled}`:''}`;
-  return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='heal'||actual.burnDamage[p]||actual.deathDamage[p]||actual.reviveTriggered[p]?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
+  return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='heal'||actual.burnDamage[p]||actual.deathDamage[p]||actual.reviveTriggered[p]||actual.reflectTriggered.some(Boolean)?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
 }
 function retreatButton(b,p){
   const r=resolveCombatAction(battleForViewer(b,p),p,{type:'retreat'}),burn=r.effects.burnDamage;
@@ -432,6 +438,9 @@ else maybeOpenEasterEgg();
 
 function diceTurn(m){
   const pending=m.battle.dicePending,p=pending.player,keep=previewSkill(m.battle,p,pending.skill,pending.first),range=previewSkill(m.battle,p,pending.skill);
-  const controls=p===0&&m.controls[p]==='human'?`<div class="skills">${btn(`保留 ${pending.first} 点 · 实际伤害 ${keep.damage}${keep.lethal?' · 可击败对方':''}`,'dice-keep')}${btn(`重掷一次 · 伤害 ${range.minDamage}～${range.maxDamage}`,'dice-reroll','ghost')}</div>`:`<p>${name(p)}正在决定保留或重掷。</p>`;
-  return `${battleBoard(m)}<section class="panel"><div class="eyebrow">掷金碰运 · 同一次进攻</div><h3>首掷 ${pending.first} 点</h3><div class="dice-face" aria-label="当前骰点${pending.first}">${['','⚀','⚁','⚂','⚃','⚄','⚅'][pending.first]}</div><p>保留将造成 <b>${keep.damage}</b> 实际直接伤害${keep.lethal?'，可以击败对方':''}。</p><p>对方最终HP：${m.battle.hp[1-p]} → ${keep.targetHp} · 自己最终HP：${m.battle.hp[p]} → ${keep.ownHp}</p>${keep.selfDefeat?'<p class="skill-notice risk">保留后行动末会因持续伤害归零。</p>':''}<p>重掷1～6等概率，必须接受新结果，可能比现在更低。当前尚未扣血或消耗状态；确定最终结果后统一结算。</p>${controls}</section>`;
+  const reaction=keep.reflectTriggered.some(Boolean),warning=keep.draw?'平局保卡':keep.selfDefeat?'警告：自己战败':keep.lethal?'可击败对方':'';
+  const controls=p===0&&m.controls[p]==='human'?`<div class="skills">${btn(`保留 ${pending.first} 点 · 实际伤害 ${keep.damage}${warning?' · '+warning:''}`,'dice-keep')}${btn(`重掷一次 · 伤害 ${range.minDamage}～${range.maxDamage}`,'dice-reroll','ghost')}</div>`:`<p>${name(p)}正在决定保留或重掷。</p>`;
+  const reflection=reaction?`<p>反刺原始${keep.reflectRaw[p]} · 护盾抵消${keep.reflectBlocked[p]} · 实际反伤${keep.reflectDamage[p]}；最终HP包含防护、旧伤及死亡反应。</p>`:'';
+  const risk=keep.selfDefeat?`<p class="skill-notice risk">${reaction?'保留后因反刺及后续结算归零，自己战败。':'保留后行动末会因持续伤害归零。'}</p>`:keep.draw?'<p class="skill-notice">保留后本次平局，各自保留卡牌。</p>':'';
+  return `${battleBoard(m)}<section class="panel"><div class="eyebrow">掷金碰运 · 同一次进攻</div><h3>首掷 ${pending.first} 点</h3><div class="dice-face" aria-label="当前骰点${pending.first}">${['','⚀','⚁','⚂','⚃','⚄','⚅'][pending.first]}</div><p>保留将造成 <b>${keep.damage}</b> 实际直接伤害${keep.lethal?'，可以击败对方':''}。</p><p>对方最终HP：${m.battle.hp[1-p]} → ${keep.targetHp} · 自己最终HP：${m.battle.hp[p]} → ${keep.ownHp}</p>${reflection}${risk}<p>重掷1～6等概率，必须接受新结果，可能比现在更低。当前尚未扣血或消耗状态；确定最终结果后统一结算。</p>${controls}</section>`;
 }

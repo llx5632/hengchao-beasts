@@ -60,6 +60,12 @@ export const CARD_GRANTS = [
       "fufengtang"
     ],
     "includeCardId": true
+  },
+  {
+    "flag": "springPufferGranted",
+    "prefix": "release-spring-puffer",
+    "cardIds": ["huangjitun"],
+    "includeCardId": false
   }
 ];
 

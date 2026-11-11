@@ -100,8 +100,8 @@ function battleAction(m,action) {
   m.battle=result.state;
   m.battle.last={player:p,text:result.text,before:{hp:[...b.hp],remaining:[...b.remaining]},after:{hp:[...result.state.hp],remaining:[...result.state.remaining]}};log(m,result.text);
   if(!result.finished)m.phase='battle-turn';
-  else if(result.winner===null)finish(m,null,action.type==='retreat'&&result.state.remaining[p]===0?'撤退成功，平局，双方保留卡牌':result.effects.deathTriggered.some(Boolean)?'殒爆后双方HP归零，平局，双方保留卡牌':'双方持续伤害同时归零，平局，双方保留卡牌');
-  else {const winner=result.winner,loser=1-winner;transfer(m,loser,activeBattleInstance(m,loser).id,'战斗获胜');finish(m,winner,result.effects.burnDamage.some(Boolean)?'持续伤害结算后HP归零，战斗结束':'对方剩余 HP 为 0，战斗获胜');}
+  else if(result.winner===null)finish(m,null,action.type==='retreat'&&result.state.remaining[p]===0?'撤退成功，平局，双方保留卡牌':result.effects.reflectTriggered.some(Boolean)?'反刺及死亡反应后双方HP归零，平局，双方保留卡牌':result.effects.deathTriggered.some(Boolean)?'殒爆后双方HP归零，平局，双方保留卡牌':'双方持续伤害同时归零，平局，双方保留卡牌');
+  else {const winner=result.winner,loser=1-winner;transfer(m,loser,activeBattleInstance(m,loser).id,'战斗获胜');finish(m,winner,result.effects.reflectTriggered.some(Boolean)?'反刺及死亡反应结算后HP归零，战斗结束':result.effects.burnDamage.some(Boolean)?'持续伤害结算后HP归零，战斗结束':'对方剩余 HP 为 0，战斗获胜');}
 }
 
 export function dispatch(match,action,rng=Math.random) {
@@ -207,11 +207,11 @@ export function aiAction(m,p,rng=Math.random) {
     const lethal=options.findIndex(rs=>rs.length&&rs.every(r=>r.finished&&r.winner===p));
     if (lethal >= 0) return attack(lethal);
     const retreat=resolveCombatAction(b,p,{type:'retreat'});
-    const ward=own.skills.findIndex(s=>s.effect==='death-ward');
-    if(ward>=0&&!b.deathUsed?.[p]&&!(retreat.finished&&retreat.winner===null)){
+    const ward=own.skills.findIndex(s=>s.effect==='death-ward'||s.effect==='reflect-ward');
+    if(ward>=0&&(own.skills[ward].effect==='reflect-ward'?!b.reflectWard?.[p]:!b.deathUsed?.[p])&&!(retreat.finished&&retreat.winner===null)){
       const r=projected[ward];
       if(r?.finished&&r.winner===null)return attack(ward);
-      if(r&&!r.finished&&battleActions(r.state,1-p).filter(a=>a.type==='attack').some(a=>combatOutcomes(r.state,1-p,a).every(n=>n.finished&&n.winner===null&&n.effects.deathTriggered[p])))return attack(ward);
+      if(r&&!r.finished&&battleActions(r.state,1-p).filter(a=>a.type==='attack').some(a=>combatOutcomes(r.state,1-p,a).every(n=>n.finished&&n.winner===null&&(n.effects.deathTriggered[p]||n.effects.reflectTriggered[p]))))return attack(ward);
     }
     if ((!retreat.finished||retreat.winner!==1-p)&&b.hp[p] <= Math.max(...battleActions(b,1-p).filter(a=>a.type==='attack').flatMap(a=>combatOutcomes(b,1-p,a).map(r=>b.hp[p]-r.state.hp[p]))) && b.remaining[p] <= 2) return {type:'retreat',player:p};
     const survives=options.some(rs=>rs.some(r=>!r.finished||r.winner===p));
