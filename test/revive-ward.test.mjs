@@ -14,7 +14,7 @@ function match(other='panjia'){
   if(m.status==='active'){m.phase='battle-action';m.battle.actor=0;}return m;
 }
 test('藏泉螈静态及拼点不计回生',()=>{
-  assert.deepEqual(METRICS.map(m=>m.read(CARD.cangquanyuan)),[3,120,3,45,.6,64]);assert.equal(CARD.cangquanyuan.element,'水');assert.equal(CARD.cangquanyuan.tier,'高阶');assert.deepEqual(CARD.cangquanyuan.skills.map(s=>s.damage),[45,15]);assert.match(skillText(CARD.cangquanyuan.skills[1]),/每战1次/);
+  assert.deepEqual(METRICS.map(m=>m.read(CARD.cangquanyuan)),[3,120,3,45,.6,64]);assert.equal(CARD.cangquanyuan.element,'水');assert.equal(CARD.cangquanyuan.tier,'中阶');assert.deepEqual(CARD.cangquanyuan.skills.map(s=>s.damage),[45,15]);assert.match(skillText(CARD.cangquanyuan.skills[1]),/每战1次/);
 });
 for(const hp of [0,60,61,120])test(`HP${hp}禁止挂印及AI非法选择`,()=>{
   const b=battle();b.hp[0]=hp;assert(!skillAvailable(b,0,1));assert(!battleActions(b,0).some(a=>a.skill===1));assert.throws(()=>hit(b),/严格低于半血/);
