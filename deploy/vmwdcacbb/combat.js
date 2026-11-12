@@ -42,6 +42,8 @@ export function twinBloodBonus(battle,player,skill){
 export function pursuitBonus(battle,player,skill){return skill.effect==='pursuit'&&battle.remaining[1-player]===1?skill.amount:0;}
 // Percentage is rounded and capped before joining the single direct skill hit.
 export function percentMaxHpBonus(maxHp,skill){return skill.effect==='max-hp'?Math.min(50,Math.floor(maxHp*skill.amount/100)):0;}
+// A transaction is available only while the target can actually give up a point.
+export function retreatTradeBonus(battle,player,skill){return skill.effect==='retreat-trade'&&battle.remaining[1-player]>1?skill.amount:0;}
 // The attack-start snapshot gates both the bonus and the later penalty grant.
 export function overloadBonus(battle,player,skill){return skill.effect==='overload'&&!(battle.cooling?.[player]>0)?skill.amount:0;}
 export function coolingMultiplier(battle,player){return battle.cooling?.[player]>0?(battle.coolingMultiplier?.[player]??1.5):1;}
@@ -53,12 +55,12 @@ export function combatStatusKey(s){return JSON.stringify([s.cards,s.twinPairs??n
 export function combatStatusValue(s,p){
   const reflect=i=>{
     if(!s.reflectWard?.[i])return 0;
-    const target=1-i,hit=Math.max(...CARD[s.cards[target]].skills.map(skill=>(skill.damage*(skill.effect==='dice'?4.25:1)+pursuitBonus(s,target,skill)+twinBloodBonus(s,target,skill)+overloadBonus(s,target,skill)+percentMaxHpBonus(CARD[s.cards[i]].hp,skill))*twinDamageMultiplier(skill,CARD[s.cards[i]].element)*(s.weaken?.[target] ? .75 : 1)*coolingMultiplier(s,i)));
+    const target=1-i,hit=Math.max(...CARD[s.cards[target]].skills.map(skill=>(skill.damage*(skill.effect==='dice'?4.25:1)+pursuitBonus(s,target,skill)+twinBloodBonus(s,target,skill)+overloadBonus(s,target,skill)+retreatTradeBonus(s,target,skill)+percentMaxHpBonus(CARD[s.cards[i]].hp,skill))*twinDamageMultiplier(skill,CARD[s.cards[i]].element)*(s.weaken?.[target] ? .75 : 1)*coolingMultiplier(s,i)));
     const received=Math.min(s.hp[i],Math.max(0,hit-(s.shield?.[i]??0))),raw=Math.max(0,Math.min(s.reflectCap[i],Math.floor(received*s.reflectRate[i]/100))-(s.shield?.[target]??0));
     return Math.min(s.hp[target],raw-(s.seal?.[target]?Math.min(30,Math.floor(raw/2)):0))*.8;
   };
   const ward=i=>{const target=1-i,raw=Math.max(0,(s.deathPower?.[i]??0)-(s.shield?.[target]??0)),deferred=s.seal?.[target]?Math.min(30,Math.floor(raw/2)):0;return s.deathWard?.[i]&&s.hp[target]<=raw-deferred+(raw-deferred>0?(s.debt?.[target]??0):0)?15*s.deathWard[i]:0;};
-  const coolingCost=i=>s.cooling?.[i]>0?Math.min(s.hp[i],Math.max(...CARD[s.cards[1-i]].skills.map(skill=>skill.damage*(skill.effect==='dice'?4.25:1)+overloadBonus(s,1-i,skill)+percentMaxHpBonus(CARD[s.cards[i]].hp,skill)))*(coolingMultiplier(s,i)-1)*s.cooling[i]):0;
+  const coolingCost=i=>s.cooling?.[i]>0?Math.min(s.hp[i],Math.max(...CARD[s.cards[1-i]].skills.map(skill=>skill.damage*(skill.effect==='dice'?4.25:1)+overloadBonus(s,1-i,skill)+retreatTradeBonus(s,1-i,skill)+percentMaxHpBonus(CARD[s.cards[i]].hp,skill)))*(coolingMultiplier(s,i)-1)*s.cooling[i]):0;
   const v=i=>ward(i)-coolingCost(i)+(s.reviveWard?.[i]?Math.floor(CARD[s.cards[i]].hp/2)*.8:0)+(s.charge?.[i]?20:0)+(s.shield?.[i]??0)*.7+Math.min(30,Math.floor((s.echo?.[i]??0)/2))*.6+(s.root?.[i]??0)*14+(s.seal?.[i]?15:0)-(s.debt?.[i]??0)-(s.burn?.[i]??0)*10-(s.weaken?.[i]??0)*6-(s.mark?.[i]===1-i?18:0)+((s.wind?.[i]??-1)<0?0:[18.75,37.5,50][s.wind[i]])+(s.prediction?.[i]?23:0)+(s.foresight?.[i]??0);
   return v(p)+reflect(p)-v(1-p)-reflect(1-p);
 }
@@ -92,7 +94,7 @@ export function resolveCombatAction(battle,player,action){
   const state={...battle,dicePending:null,cards:[...battle.cards],hp:[...battle.hp],remaining:[...battle.remaining],...(battle.instances?{instances:[...battle.instances]}:{})};
   if(action.type==='attack'&&!skillAvailable(battle,player,action.skill))throw new Error(skillUnavailableReason(battle,player,action.skill));
   for(const [k,v] of Object.entries(empty()))state[k]=[...(battle[k]??v)];
-  const other=1-player,startCooling=state.cooling[player],startWard=[...state.deathWard],startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],waiting=state.prediction[other],events=[],effects={drainBasis:0,drainPotential:0,coolingApplied:[false,false],coolingConsumed:[false,false],healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0],deathDamage:[0,0],deathTriggered:[false,false],reviveTriggered:[false,false],reviveHealing:[0,0],reflectTriggered:[false,false],reflectBasis:[0,0],reflectRaw:[0,0],reflectBlocked:[0,0],reflectDamage:[0,0],directEnded:false};
+  const other=1-player,startCooling=state.cooling[player],startWard=[...state.deathWard],startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],waiting=state.prediction[other],events=[],effects={retreatReduced:0,drainBasis:0,drainPotential:0,coolingApplied:[false,false],coolingConsumed:[false,false],healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0],deathDamage:[0,0],deathTriggered:[false,false],reviveTriggered:[false,false],reviveHealing:[0,0],reflectTriggered:[false,false],reflectBasis:[0,0],reflectRaw:[0,0],reflectBlocked:[0,0],reflectDamage:[0,0],directEnded:false};
   const label=p=>CARD[state.cards[p]].name;let text='',breakdown=null;
   // Each positive damage event consumes existing debt; newly deferred damage waits
   // for another event, including a later burn event in this same action.
@@ -170,6 +172,12 @@ export function resolveCombatAction(battle,player,action){
     return state.remaining[player]===0?outcome(true,null):actionEnd();
   }
   const skill=CARD[state.cards[player]].skills[action.skill];let bonus=0;
+  // Pay the retreat transaction before the one direct hit and all reactions.
+  if(skill.effect==='retreat-trade'){
+    const before=state.remaining[other],trade=retreatTradeBonus(state,player,skill);
+    if(trade){state.remaining[other]--;effects.retreatReduced=1;bonus+=trade;events.push(`先使${label(other)}剩余撤退${before} → ${state.remaining[other]}，本次伤害＋${trade}；代价不返还`);}
+    else events.push(`${label(other)}剩余撤退为1，不能实际减少，本次未取得逐客强化`);
+  }
   const targetMaxHp=CARD[state.cards[other]].hp,percentBonus=percentMaxHpBonus(targetMaxHp,skill);
   if(skill.effect==='max-hp'){bonus+=percentBonus;events.push(`目标最大HP${targetMaxHp}×${skill.amount}%向下取整${Math.floor(targetMaxHp*skill.amount/100)}，追加封顶50，本次＋${percentBonus}，合为一笔直接伤害`);}
   const overload=overloadBonus(state,player,skill);if(overload){bonus+=overload;events.push(`无散热，沸喉焚咬伤害＋${overload}`);}
@@ -269,7 +277,7 @@ export function previewSkill(battle,player,skillIndex,die=null){
   }
   const other=1-player,skill=CARD[battle.cards[player]].skills[skillIndex],r=resolveCombatAction(battleForViewer(battle,player),player,{type:'attack',skill:skillIndex,...(die===null?{}:{die})});
   const directLethal=r.breakdown.directLethal;
-  return {drainBasis:r.effects.drainBasis,drainPotential:r.effects.drainPotential,cooling:r.state.cooling,coolingApplied:r.effects.coolingApplied,coolingConsumed:r.effects.coolingConsumed,reflectTriggered:r.effects.reflectTriggered,reflectBasis:r.effects.reflectBasis,reflectRaw:r.effects.reflectRaw,reflectBlocked:r.effects.reflectBlocked,reflectDamage:r.effects.reflectDamage,reviveTriggered:r.effects.reviveTriggered,reviveHealing:r.effects.reviveHealing,transformed:r.effects.transformed??null,deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,deathDamage:r.effects.deathDamage,deathTriggered:r.effects.deathTriggered,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:r.effects.directEnded&&['drain','overload','revive-ward','heal','delay','charge','shield','burn','mark','weaken','root','seal','wind','predict','twin-shift','death-ward','reflect-ward'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
+  return {retreatReduced:r.effects.retreatReduced,drainBasis:r.effects.drainBasis,drainPotential:r.effects.drainPotential,cooling:r.state.cooling,coolingApplied:r.effects.coolingApplied,coolingConsumed:r.effects.coolingConsumed,reflectTriggered:r.effects.reflectTriggered,reflectBasis:r.effects.reflectBasis,reflectRaw:r.effects.reflectRaw,reflectBlocked:r.effects.reflectBlocked,reflectDamage:r.effects.reflectDamage,reviveTriggered:r.effects.reviveTriggered,reviveHealing:r.effects.reviveHealing,transformed:r.effects.transformed??null,deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,deathDamage:r.effects.deathDamage,deathTriggered:r.effects.deathTriggered,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:r.effects.directEnded&&['drain','overload','revive-ward','heal','delay','charge','shield','burn','mark','weaken','root','seal','wind','predict','twin-shift','death-ward','reflect-ward'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
 }
 
 export function combatOutcomes(battle,player,action){
@@ -282,7 +290,7 @@ export function expectedCombatScore(battle,player,action,score){
 }
 export function immediateCombatScore(battle,player,result){
   if(result.finished)return result.winner===player?100000:result.winner===null?0:-100000;
-  return battle.hp[1-player]-result.state.hp[1-player]+result.state.hp[player]-battle.hp[player]+combatStatusValue(result.state,player)-combatStatusValue(battle,player);
+  return battle.hp[1-player]-result.state.hp[1-player]+result.state.hp[player]-battle.hp[player]+combatStatusValue(result.state,player)-combatStatusValue(battle,player)-5*result.effects.retreatReduced;
 }
 export function simpleDiceChoice(battle,player){
   const pending=battle.dicePending,action={type:'attack',skill:pending.skill};

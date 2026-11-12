@@ -1,5 +1,6 @@
 // Current card faces generated from the approved concept style.
 export const CURRENT_ART = Object.freeze({
+  "suizongjuxiang": "当前卡面/穗鬃巨象.png",
   "luwenzhi": "当前卡面/露吻蛭.png",
   "shishayishi": "当前卡面/蚀砂蚁狮.png",
   "chihoubaolong": "当前卡面/赤喉暴龙.png",
