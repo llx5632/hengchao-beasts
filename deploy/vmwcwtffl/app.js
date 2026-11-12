@@ -171,6 +171,7 @@ function skillButton(battle,p,skill,index){
   else if(actual.lethal)notes.push('本次可击败对方，结束对局。');
   if(actual.selfDefeat)notes.push(actual.reflectTriggered.some(Boolean)?'警告：反刺及死亡反应后自己归零、对方仍存活，判负失卡。':actual.deathTriggered.some(Boolean)?'警告：死亡与殒爆结算后自己归零、对方仍存活，判负失卡。':'警告：行动后持续伤害会使自己HP归零，判负失卡。');
   if(actual.draw)notes.push(actual.reflectTriggered.some(Boolean)?'反刺及死亡反应后双方HP归零，本次平局，各自保留卡牌。':actual.deathTriggered.some(Boolean)?'殒爆后双方HP归零，本次判平局，各自保留卡牌。':'双方持续伤害同时归零，本次判平局，各自保留卡牌。');
+  if(skill.effect==='drain')notes.push(actual.effectSkipped?'反刺与死亡反应后战斗结束，不再汲取回血；不能靠尚未兑现的治疗抵消致命反刺。':`按实际直接扣血${actual.drainBasis}×50%向下取整${actual.drainPotential}，自己实际恢复${actual.healing}HP；受缺失HP限制。盾、封伤暂存、旧伤、溢出、反刺及烙印不计入基数；先反刺和死亡反应，再回血，最后统一行动末。`);
   if(skill.effect==='heal'&&!actual.effectSkipped)notes.push(actual.healing===0?'当前已满血，本次回血为 0。':`实际回血 ${actual.healing}`);
   if(skill.effect==='delay'&&!actual.effectSkipped)notes.push(actual.delay===0?'对方剩余撤退已达上限，本次阻退为 0。':`对方剩余撤退＋${actual.delay}`);
   if(skill.effect==='charge'&&!actual.effectSkipped)notes.push(battle.charge?.[p]?'已有蓄势，不叠加。':'获得蓄势：下次裂风突袭＋30。');
@@ -200,12 +201,12 @@ function skillButton(battle,p,skill,index){
   }
   for(const q of [0,1])if(actual.burnDamage[q])notes.push(`${name(q)}行动末烙印伤害 ${actual.burnDamage[q]}`);
   if(actual.burnSkipped)notes.push('本次立即结束，不再结算持续伤害。');
-  const impact=`实际伤害 ${actual.damage}${skill.effect==='heal'?` · 实际回血 ${actual.healing}`:skill.effect==='delay'?` · 对方剩余撤退 +${actual.delay}`:''}`;
+  const impact=`实际伤害 ${actual.damage}${['heal','drain'].includes(skill.effect)?` · 实际回血 ${actual.healing}`:skill.effect==='delay'?` · 对方剩余撤退 +${actual.delay}`:''}`;
   const afterShield=Math.max(0,b.afterReduction-b.blocked);
   const immediate=afterShield-b.directDeferred;
   const baseCalculation=`基础${b.base}${b.percentBonus?`＋最大HP追加${b.percentBonus}`:''}${b.bonus-b.percentBonus?`＋强化${b.bonus-b.percentBonus}`:''}`;
   const calculation=`${skill.effect==='max-hp'&&(b.elementMultiplier!==1||b.multiplier!==1||b.vulnerabilityMultiplier!==1)?`（${baseCalculation}）`:baseCalculation}${b.elementMultiplier!==1?`×属性倍率${b.elementMultiplier}`:''}${b.multiplier!==1?'×削弱75%':''}${b.vulnerabilityMultiplier!==1?`×散热${b.vulnerabilityMultiplier}`:''}${b.multiplier!==1||b.vulnerabilityMultiplier!==1?`→统一向下取整${b.afterReduction}`:''}${b.blocked?`－护盾${b.blocked}`:''}${b.directDeferred?`－暂存${b.directDeferred}`:''}＝${immediate}${actual.damage<immediate?`；实际直接扣血受剩余HP限制为${actual.damage}`:''}${b.directSettled?`；旧伤另扣${b.directSettled}`:''}`;
-  return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='max-hp'||skill.effect==='heal'||actual.burnDamage[p]||actual.deathDamage[p]||actual.reviveTriggered[p]||actual.reflectTriggered.some(Boolean)?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
+  return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='max-hp'||skill.effect==='heal'||skill.effect==='drain'||actual.burnDamage[p]||actual.deathDamage[p]||actual.reviveTriggered[p]||actual.reflectTriggered.some(Boolean)?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
 }
 function retreatButton(b,p){
   const r=resolveCombatAction(battleForViewer(b,p),p,{type:'retreat'}),burn=r.effects.burnDamage;
