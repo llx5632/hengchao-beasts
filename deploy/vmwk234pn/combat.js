@@ -46,6 +46,8 @@ export function percentMaxHpBonus(maxHp,skill){return skill.effect==='max-hp'?Ma
 export function retreatTradeBonus(battle,player,skill){return skill.effect==='retreat-trade'&&battle.remaining[1-player]>1?skill.amount:0;}
 // The attack-start snapshot gates both the bonus and the later penalty grant.
 export function overloadBonus(battle,player,skill){return skill.effect==='overload'&&!(battle.cooling?.[player]>0)?skill.amount:0;}
+// Only the current ordinary shield can be paid; wards and debt are separate.
+export function shieldStrikeBonus(battle,player,skill){return skill.effect==='shield-strike'?Math.min(70,Math.floor((battle.shield?.[player]??0)*skill.amount)):0;}
 export function coolingMultiplier(battle,player){return battle.cooling?.[player]>0?(battle.coolingMultiplier?.[player]??1.5):1;}
 export function battleActions(battle,player){
   return CARD[battle.cards[player]].skills.flatMap((s,skill)=>!skillAvailable(battle,player,skill)?[]:s.effect==='predict'&&!battle.prediction?.[player]?[{type:'attack',skill,prediction:'attack'},{type:'attack',skill,prediction:'retreat'}]:[{type:'attack',skill}]).concat({type:'retreat'});
@@ -55,12 +57,12 @@ export function combatStatusKey(s){return JSON.stringify([s.cards,s.twinPairs??n
 export function combatStatusValue(s,p){
   const reflect=i=>{
     if(!s.reflectWard?.[i])return 0;
-    const target=1-i,hit=Math.max(...CARD[s.cards[target]].skills.map(skill=>(skill.damage*(skill.effect==='dice'?4.25:1)+pursuitBonus(s,target,skill)+twinBloodBonus(s,target,skill)+overloadBonus(s,target,skill)+retreatTradeBonus(s,target,skill)+percentMaxHpBonus(CARD[s.cards[i]].hp,skill))*twinDamageMultiplier(skill,CARD[s.cards[i]].element)*(s.weaken?.[target] ? .75 : 1)*coolingMultiplier(s,i)));
+    const target=1-i,hit=Math.max(...CARD[s.cards[target]].skills.map(skill=>(skill.damage*(skill.effect==='dice'?4.25:1)+pursuitBonus(s,target,skill)+twinBloodBonus(s,target,skill)+overloadBonus(s,target,skill)+retreatTradeBonus(s,target,skill)+shieldStrikeBonus(s,target,skill)+percentMaxHpBonus(CARD[s.cards[i]].hp,skill))*twinDamageMultiplier(skill,CARD[s.cards[i]].element)*(s.weaken?.[target] ? .75 : 1)*coolingMultiplier(s,i)));
     const received=Math.min(s.hp[i],Math.max(0,hit-(s.shield?.[i]??0))),raw=Math.max(0,Math.min(s.reflectCap[i],Math.floor(received*s.reflectRate[i]/100))-(s.shield?.[target]??0));
     return Math.min(s.hp[target],raw-(s.seal?.[target]?Math.min(30,Math.floor(raw/2)):0))*.8;
   };
   const ward=i=>{const target=1-i,raw=Math.max(0,(s.deathPower?.[i]??0)-(s.shield?.[target]??0)),deferred=s.seal?.[target]?Math.min(30,Math.floor(raw/2)):0;return s.deathWard?.[i]&&s.hp[target]<=raw-deferred+(raw-deferred>0?(s.debt?.[target]??0):0)?15*s.deathWard[i]:0;};
-  const coolingCost=i=>s.cooling?.[i]>0?Math.min(s.hp[i],Math.max(...CARD[s.cards[1-i]].skills.map(skill=>skill.damage*(skill.effect==='dice'?4.25:1)+overloadBonus(s,1-i,skill)+retreatTradeBonus(s,1-i,skill)+percentMaxHpBonus(CARD[s.cards[i]].hp,skill)))*(coolingMultiplier(s,i)-1)*s.cooling[i]):0;
+  const coolingCost=i=>s.cooling?.[i]>0?Math.min(s.hp[i],Math.max(...CARD[s.cards[1-i]].skills.map(skill=>skill.damage*(skill.effect==='dice'?4.25:1)+overloadBonus(s,1-i,skill)+retreatTradeBonus(s,1-i,skill)+shieldStrikeBonus(s,1-i,skill)+percentMaxHpBonus(CARD[s.cards[i]].hp,skill)))*(coolingMultiplier(s,i)-1)*s.cooling[i]):0;
   const v=i=>ward(i)-coolingCost(i)+(s.reviveWard?.[i]?Math.floor(CARD[s.cards[i]].hp/2)*.8:0)+(s.charge?.[i]?20:0)+(s.shield?.[i]??0)*.7+Math.min(30,Math.floor((s.echo?.[i]??0)/2))*.6+(s.root?.[i]??0)*14+(s.seal?.[i]?15:0)-(s.debt?.[i]??0)-(s.burn?.[i]??0)*10-(s.weaken?.[i]??0)*6-(s.mark?.[i]===1-i?18:0)+((s.wind?.[i]??-1)<0?0:[18.75,37.5,50][s.wind[i]])+(s.prediction?.[i]?23:0)+(s.foresight?.[i]??0);
   return v(p)+reflect(p)-v(1-p)-reflect(1-p);
 }
@@ -79,7 +81,8 @@ export function combatStatuses(s,p,viewer=0){
   }
   if(c.id==='panjia'||s.seal?.[p]||s.debt?.[p])add('seal',s.debt?.[p]?`待结伤势${s.debt[p]} · 再次受伤结清`:s.seal?.[p]?'封伤保护 · 暂存50%，最多30':'封伤：未生效',!!(s.seal?.[p]||s.debt?.[p]),'来源：矿甲封伤。下次对方正数直接伤害暂存一半、向下取整、最多30；再次实际受伤（含烙印）时结清，0伤害不触发。有待结伤势时使用本技能取消全部旧伤，本次不获保护；已有保护不叠加、不刷新。猜拳和行动结束不自动结清。战斗结束清空。');
   if(c.id==='xianbei')add('charge',s.charge?.[p]?'蓄势：裂风突袭＋30':'蓄势：未蓄势',!!s.charge?.[p],'来源：蓄势扑击。仅下次裂风突袭消耗，不叠加；猜拳、受伤及未成功撤退保留，结束清空。');
-  if(c.id==='dielin'||s.shield?.[p])add('shield',s.shield?.[p]?`护盾${s.shield[p]} · 下次受击消耗`:'护盾：未生效',!!s.shield?.[p],'来源：迎击护壳。抵消下次技能进攻至多15直接伤害，0伤害也消耗，余量不留、不叠加。不抵消持续伤害，不取消存活时的附加效果。');
+  if(c.id==='caiyeqiaojia')add('leaf-shield',s.shield?.[p]?`普通护盾${s.shield[p]} · 可保留或转攻`:'叶盾：未取得',!!s.shield?.[p],'合叶护身35直接伤害，战斗继续且无盾时取得35一次性盾；已有盾保留原值、不补足。下次适用直接受击整份消耗，余量不保留，0直接扣血的技能攻击也消耗；不防烙印或旧伤。振鞘掷叶60，攻击前消耗全部普通盾，按实际消耗量2倍追加最多70，不返还，不能再防反刺；封伤及各类伏印不可转化。');
+  if(c.id!=='caiyeqiaojia'&&(c.id==='dielin'||s.shield?.[p]))add('shield',s.shield?.[p]?`护盾${s.shield[p]} · 下次受击消耗`:'护盾：未生效',!!s.shield?.[p],'来源：迎击护壳。抵消下次技能进攻至多15直接伤害，0伤害也消耗，余量不留、不叠加。不抵消持续伤害，不取消存活时的附加效果。');
   if(c.id==='jinzong')add('desperate',s.hp[p]<=60?'绝境生效 · 反扑60':'绝境：未生效（HP＞60）',s.hp[p]<=60,'来源：绝境反扑。使用时HP≤60总伤害60，否则30；回血高于60即失效，不自动反击。');
   if(c.id==='jiejing')add('pursuit',s.remaining[other]===1?'追击就绪 · 封路追击＋40':'追击：未满足（对方剩余撤退＞1）',s.remaining[other]===1,'来源：封路追击。使用时对方当前剩余撤退为1，本次伤害＋40；基础撤退1开局即可触发，每次独立判断、不积层。对方剩余撤退提高至2或以上即不满足。只在自己正常进攻时生效；对方成功撤退立即结束，不自动补打或阻止撤退。');
   if(c.id==='mingnang')add('echo',s.echo?.[p]?`回响记录${s.echo[p]} · 可追加${Math.min(30,Math.floor(s.echo[p]/2))}`:'回响：无受伤记录',!!s.echo?.[p],'来源：最近一次对方技能的实际直接HP损失，正数覆盖、0不覆盖，持续伤害不记录。仅借势回响消耗，一半向下取整、最多30。');
@@ -94,7 +97,7 @@ export function resolveCombatAction(battle,player,action){
   const state={...battle,dicePending:null,cards:[...battle.cards],hp:[...battle.hp],remaining:[...battle.remaining],...(battle.instances?{instances:[...battle.instances]}:{})};
   if(action.type==='attack'&&!skillAvailable(battle,player,action.skill))throw new Error(skillUnavailableReason(battle,player,action.skill));
   for(const [k,v] of Object.entries(empty()))state[k]=[...(battle[k]??v)];
-  const other=1-player,startCooling=state.cooling[player],startWard=[...state.deathWard],startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],waiting=state.prediction[other],events=[],effects={retreatReduced:0,drainBasis:0,drainPotential:0,coolingApplied:[false,false],coolingConsumed:[false,false],healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0],deathDamage:[0,0],deathTriggered:[false,false],reviveTriggered:[false,false],reviveHealing:[0,0],reflectTriggered:[false,false],reflectBasis:[0,0],reflectRaw:[0,0],reflectBlocked:[0,0],reflectDamage:[0,0],directEnded:false};
+  const other=1-player,startCooling=state.cooling[player],startWard=[...state.deathWard],startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],waiting=state.prediction[other],events=[],effects={shieldSpent:0,shieldBonus:0,shieldGranted:0,retreatReduced:0,drainBasis:0,drainPotential:0,coolingApplied:[false,false],coolingConsumed:[false,false],healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0],deathDamage:[0,0],deathTriggered:[false,false],reviveTriggered:[false,false],reviveHealing:[0,0],reflectTriggered:[false,false],reflectBasis:[0,0],reflectRaw:[0,0],reflectBlocked:[0,0],reflectDamage:[0,0],directEnded:false};
   const label=p=>CARD[state.cards[p]].name;let text='',breakdown=null;
   // Each positive damage event consumes existing debt; newly deferred damage waits
   // for another event, including a later burn event in this same action.
@@ -172,6 +175,11 @@ export function resolveCombatAction(battle,player,action){
     return state.remaining[player]===0?outcome(true,null):actionEnd();
   }
   const skill=CARD[state.cards[player]].skills[action.skill];let bonus=0;
+  // Consume before damage, including any reflection or death reaction.
+  if(skill.effect==='shield-strike'){
+    effects.shieldBonus=shieldStrikeBonus(state,player,skill);effects.shieldSpent=state.shield[player];state.shield[player]=0;bonus+=effects.shieldBonus;
+    events.push(`先消耗普通护盾${effects.shieldSpent}，按2倍转化追加${effects.shieldBonus}（最多70），护盾不返还`);
+  }
   // Pay the retreat transaction before the one direct hit and all reactions.
   if(skill.effect==='retreat-trade'){
     const before=state.remaining[other],trade=retreatTradeBonus(state,player,skill);
@@ -236,6 +244,10 @@ export function resolveCombatAction(battle,player,action){
   if(skill.effect==='heal'){effects.healing=Math.min(skill.amount,CARD[state.cards[player]].hp-state.hp[player]);state.hp[player]+=effects.healing;text+=`，自己恢复 ${effects.healing} HP`;}
   if(skill.effect==='delay'){effects.delay=Math.max(0,Math.min(skill.amount,CARD[state.cards[other]].retreat+2-state.remaining[other]));state.remaining[other]+=effects.delay;text+=`，对方剩余撤退 +${effects.delay}`;}
   if(skill.effect==='charge'){events.push(state.charge[player]?`${label(player)}已蓄势，不叠加`:`${label(player)}获得蓄势：裂风突袭＋${skill.amount}`);state.charge[player]=true;}
+  if(skill.effect==='leaf-shield'){
+    if(state.shield[player])events.push(`已有普通护盾${state.shield[player]}，保留原值，不叠加、不替换、不补足`);
+    else{state.shield[player]=skill.amount;effects.shieldGranted=skill.amount;events.push(`获得一次性叶盾${skill.amount}；下次适用受击整份消耗，或主动转攻`);}
+  }
   if(skill.effect==='shield'){events.push(`${label(player)}${state.shield[player]?'保持':'获得'}护盾${skill.amount}，不叠加`);state.shield[player]=skill.amount;}
   if(skill.effect==='burn'){events.push(`${label(other)}${state.burn[other]?'刷新':'获得'}余烬烙印：之后2次任一方行动末各受15伤害，不叠加`);state.burn[other]=2;}
   if(skill.effect==='mark'){events.push(state.mark[other]===player?`${label(other)}已有晶痕，不叠加`:`${label(other)}获得来自${label(player)}的晶痕`);state.mark[other]=player;}
@@ -277,7 +289,7 @@ export function previewSkill(battle,player,skillIndex,die=null){
   }
   const other=1-player,skill=CARD[battle.cards[player]].skills[skillIndex],r=resolveCombatAction(battleForViewer(battle,player),player,{type:'attack',skill:skillIndex,...(die===null?{}:{die})});
   const directLethal=r.breakdown.directLethal;
-  return {retreatReduced:r.effects.retreatReduced,drainBasis:r.effects.drainBasis,drainPotential:r.effects.drainPotential,cooling:r.state.cooling,coolingApplied:r.effects.coolingApplied,coolingConsumed:r.effects.coolingConsumed,reflectTriggered:r.effects.reflectTriggered,reflectBasis:r.effects.reflectBasis,reflectRaw:r.effects.reflectRaw,reflectBlocked:r.effects.reflectBlocked,reflectDamage:r.effects.reflectDamage,reviveTriggered:r.effects.reviveTriggered,reviveHealing:r.effects.reviveHealing,transformed:r.effects.transformed??null,deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,deathDamage:r.effects.deathDamage,deathTriggered:r.effects.deathTriggered,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:r.effects.directEnded&&['drain','overload','revive-ward','heal','delay','charge','shield','burn','mark','weaken','root','seal','wind','predict','twin-shift','death-ward','reflect-ward'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
+  return {ownShield:r.state.shield[player],shieldSpent:r.effects.shieldSpent,shieldBonus:r.effects.shieldBonus,shieldGranted:r.effects.shieldGranted,retreatReduced:r.effects.retreatReduced,drainBasis:r.effects.drainBasis,drainPotential:r.effects.drainPotential,cooling:r.state.cooling,coolingApplied:r.effects.coolingApplied,coolingConsumed:r.effects.coolingConsumed,reflectTriggered:r.effects.reflectTriggered,reflectBasis:r.effects.reflectBasis,reflectRaw:r.effects.reflectRaw,reflectBlocked:r.effects.reflectBlocked,reflectDamage:r.effects.reflectDamage,reviveTriggered:r.effects.reviveTriggered,reviveHealing:r.effects.reviveHealing,transformed:r.effects.transformed??null,deferred:r.effects.deferred,settled:r.effects.settled,cancelled:r.effects.cancelled,deathDamage:r.effects.deathDamage,deathTriggered:r.effects.deathTriggered,damage:r.breakdown.damage,healing:r.effects.healing,delay:r.effects.delay,targetHp:r.state.hp[other],ownHp:r.state.hp[player],targetRetreat:r.state.remaining[other],ownRetreat:r.state.remaining[player],ownRetreatAdded:r.effects.ownRetreatAdded,burnDamage:r.effects.burnDamage,burnSkipped:r.effects.burnSkipped,selfDefeat:r.finished&&r.winner===other,draw:r.finished&&r.winner===null,lethal:r.finished&&r.winner===player,effectSkipped:r.effects.directEnded&&['leaf-shield','drain','overload','revive-ward','heal','delay','charge','shield','burn','mark','weaken','root','seal','wind','predict','twin-shift','death-ward','reflect-ward'].includes(skill.effect),events:r.events,breakdown:r.breakdown};
 }
 
 export function combatOutcomes(battle,player,action){

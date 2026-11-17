@@ -1,5 +1,6 @@
 // Preserve historical flags and instance IDs: losing a granted card never grants it again.
 export const CARD_GRANTS = [
+  {flag:'leafStagGranted',prefix:'release-leaf-stag',cardIds:['caiyeqiaojia'],includeCardId:false},
   {flag:'grainElephantGranted',prefix:'release-grain-elephant',cardIds:['suizongjuxiang'],includeCardId:false},
   {flag:'dewLeechGranted',prefix:'release-dew-leech',cardIds:['luwenzhi'],includeCardId:false},
   {flag:'sandAntlionGranted',prefix:'release-sand-antlion',cardIds:['shishayishi'],includeCardId:false},
