@@ -14,6 +14,7 @@ export function loadSession(storage){
   store.difficulty=normalizeDifficulty(store.difficulty);
   store.autoAdvance=store.autoAdvance!==false;
   store.battleCompact=store.battleCompact!==false;
+  store.musicEnabled=store.musicEnabled!==false;
   store.lineupPresets=normalizePresets(store.lineupPresets);
   store.selectionDrafts=store.selectionDrafts&&typeof store.selectionDrafts==='object'&&!Array.isArray(store.selectionDrafts)?store.selectionDrafts:{};
   store.tutorial=normalizeTutorial(store.tutorial,!hadSavedSession);

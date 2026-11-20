@@ -30,7 +30,7 @@ export const test=base.extend({
 export {expect};
 
 export function session(){
-  const value=freshSession();value.tutorial={version:1,status:'skipped'};return value;
+  const value=freshSession();value.tutorial={version:1,status:'skipped'};value.musicEnabled=false;return value;
 }
 export async function openSession(page,value=session()){
   await page.addInitScript(({key,value})=>{

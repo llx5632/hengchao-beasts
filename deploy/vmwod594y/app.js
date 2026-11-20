@@ -13,9 +13,11 @@ import { selectionDraft, createPreset, resolvePreset, canLeaveSelection } from '
 import { newTutorial, beginTutorialLesson, tutorialAction } from './tutorial.js';
 import { renderTutorial } from './tutorial-ui.js';
 import { EASTER_EGG_MESSAGES, FIREWORKS_DURATION, unlockEasterEgg, nextEasterEgg, fireworksMarkup } from './easter-egg.js';
+import { createMusicPlayer } from './music.js';
 
 const app=document.querySelector('#app');
 const fresh=freshSession;
+const music=createMusicPlayer();
 let {store,hadSavedSession,sessionUpdated}=loadSession(()=>localStorage);
 let route=store.match&&!(store.selectionLobby&&canLeaveSelection(store.match)) ? 'match' : 'home', draft=selectionDraft(store.match), filter='全部', owner=0, timer=null, toastTimer=null, previewCardId=null, paused=false;
 let selectionElement='全部',selectionSort='default',selectionAscending=false,selectedOnly=false,draftOverviewOpen=false;
@@ -94,7 +96,15 @@ function stateChange(last,field,player){if(!last?.before||!last.after)return '';
 function battleState(c,state,player,showChanges=false){const last=showChanges?state.last:null;return `<div class="battle-state"><p><span>${name(player)} · 剩余 HP</span><b>${state.hp[player]} / ${c.hp} ${stateChange(last,'hp',player)}</b></p><div class="hp-track"><div class="hp-fill" style="width:${state.hp[player]/c.hp*100}%"></div></div><p><span>本局剩余撤退</span><b>${state.remaining[player]} ${stateChange(last,'remaining',player)}</b></p>${store.match?.status==='active'?battleStatusView(state,player):''}</div>`;}
 function hiddenCard(){return '<div class="hidden-card"><span class="crest">✦</span><p>衡潮谱印</p><small>对方卡牌尚未公开</small></div>';}
 function header(){const active=store.match?.status==='active'&&!canLeaveSelection(store.match);return `<header class="topbar"><button class="brand" data-action="home"><span class="crest">✦</span><span><strong>衡潮群岛</strong><small>THE TIDEBORNE ARCHIPELAGO</small></span></button><nav class="nav" aria-label="主导航"><button data-action="home" class="${route==='home'||route==='match'?'active':''}">${active?'当前对局':'对局大厅'}</button><button data-action="codex" class="${route==='codex'?'active':''}">异兽图鉴</button><button data-action="collection" class="${route==='collection'?'active':''}">我的收藏</button><button data-action="help">规则</button></nav><span class="edition">玩家对 AI · 本地首版</span></header>`;}
-function footer(){return '<footer class="footer"><span>衡潮群岛 / 原创异兽卡牌</span><span>本地浏览器保存 · 抽卡后续开放</span></footer>';}
+function musicButton(){
+  return btn('背景音乐','music-toggle','ghost small',`aria-pressed="${store.musicEnabled}"`);
+}
+function syncMusic(gesture=false){
+  const match=route==='tutorial'?store.tutorial.match:route==='match'?store.match:null;
+  const scene=match?.mode==='battle'&&match.status==='active'?'battle':'explore';
+  music.update(scene,{enabled:store.musicEnabled,visible:!document.hidden,gesture});
+}
+function footer(){return `<footer class="footer game-footer"><span>衡潮群岛 / 原创异兽卡牌</span>${musicButton()}<span>本地浏览器保存 · 抽卡后续开放</span></footer>`;}
 function difficultyPicker(){return `<fieldset class="difficulty-picker"><legend>对手难度</legend><div class="difficulty-options">${Object.entries(DIFFICULTIES).map(([value,option])=>`<label class="difficulty-option ${store.difficulty===value?'selected':''}"><input type="radio" name="difficulty" value="${value}" data-action="difficulty" ${store.difficulty===value?'checked':''}><span><strong>${option.label}</strong><small>${option.description}</small></span></label>`).join('')}</div><p>开局前选择，整场使用同一难度。</p></fieldset>`;}
 function home(){
   const a=store.players[0].cards.length,b=store.players[1].cards.length,pending=canLeaveSelection(store.match);
@@ -286,6 +296,7 @@ function matchView(){
   return `<main class="wrap ${battleView?'battle-match':''} ${battleView&&store.battleCompact?'compact':''}"><div class="match-head"><div><div class="eyebrow">${m.mode==='battle'?'相性决斗 / BATTLE':'衡量试炼 / POINT DUEL'}</div><h2>${m.status==='finished'?'对局结果':m.mode==='battle'?'相性决斗':m.phase==='lineup-reveal'?'衡量试炼 · 阵容展示':`衡量试炼 · ${Math.min(m.phase==='round-result'?m.round:m.round+1,5)} / 5`}</h2></div><div class="match-tools">${tools}</div></div>${scoreboard(m)}${flowControls(m)}${battleView&&store.battleCompact&&m.status==='active'?`<div class="combat-layout">${content}</div>`:content}${lineupReference(m)}<details class="log" ${readingOpen.log?'open':''}><summary>查看已公开的对局记录（${m.history.length}）</summary><ol>${m.history.map(t=>`<li>${esc(t)}</li>`).join('')}</ol></details></main>`;
 }
 function render({resetReading=false}={}){
+  syncMusic();
   if(resetReading)readingOpen={log:false,lineup:false};
   else for(const [key,selector] of [['log','.log'],['lineup','.lineup-reference']]){const node=document.querySelector(selector);if(node)readingOpen[key]=node.open;}
   app.innerHTML=`<div class="shell">${route==='tutorial'?'':header()}${storageFailed?`<div class="save-warning" role="alert"><span>存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。</span>${btn('重试保存','retry-save','ghost small')}</div>`:''}${diceSaveBlocked?'<main class="wrap panel"><h2>骰点正在等待存档写入</h2><p>请重试保存后继续，当前结果会保留。</p></main>':route==='tutorial'?renderTutorial(store.tutorial,playedCard):route==='match'?matchView():route==='home'?home():catalog()}${footer()}</div>`;scheduleAI();
@@ -318,7 +329,16 @@ function start(mode){
   }catch(e){toast(e.message);}
 }
 document.addEventListener('click',event=>{
-  const target=event.target.closest('[data-action]');if(!target||target.disabled)return;
+  const target=event.target.closest('[data-action]');
+  if(target?.dataset.action==='music-toggle'){
+    store.musicEnabled=!store.musicEnabled;
+    target.setAttribute('aria-pressed',String(store.musicEnabled));
+    save();
+    syncMusic(event.isTrusted);
+    return;
+  }
+  if(event.isTrusted)syncMusic(true);
+  if(!target||target.disabled)return;
   const a=target.dataset.action,m=store.match,p=0;
   if(a==='egg-next'){
     if(Date.now()<eggAdvanceAt)return;
@@ -387,7 +407,7 @@ document.addEventListener('click',event=>{
     modal('恢复全部卡牌？','<p>你与 AI 将重新拥有全套异兽，每种一张。当前收藏与上一场记录将被替换，仅影响本浏览器。</p>','confirm-reset','恢复全部卡牌');return;
   }
   if(a==='confirm-reset'){
-    const presets=store.lineupPresets,compact=store.battleCompact,tutorial=store.tutorial;clearTimeout(eggTimer);store=fresh();store.easterEgg=null;store.lineupPresets=presets;store.battleCompact=compact;store.tutorial=tutorial;store.selectionDrafts={};store.selectionLobby=false;draft=[];draftNotice='';route='home';save();document.querySelector('#dialog').close();render();return;
+    const presets=store.lineupPresets,compact=store.battleCompact,tutorial=store.tutorial,musicEnabled=store.musicEnabled;clearTimeout(eggTimer);store=fresh();store.easterEgg=null;store.lineupPresets=presets;store.battleCompact=compact;store.tutorial=tutorial;store.musicEnabled=musicEnabled;store.selectionDrafts={};store.selectionLobby=false;draft=[];draftNotice='';route='home';save();document.querySelector('#dialog').close();render();return;
   }
   if(a==='choose-card'){
     const id=target.dataset.instance,count=m.mode==='point'?5:1;
@@ -437,7 +457,7 @@ for(const d of document.querySelectorAll('dialog')){
   }
   d.addEventListener('click',event=>{if(event.target!==d)return;const r=d.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)d.close();});
 }
-document.addEventListener('visibilitychange',()=>{scheduleAI();scheduleEggFireworks();});
+document.addEventListener('visibilitychange',()=>{syncMusic();scheduleAI();scheduleEggFireworks();});
 document.addEventListener('toggle',event=>{if(!event.target.isConnected)return;if(event.target.matches?.('.preset-list')){presetsOpen=event.target.open;return;}if(event.target.matches?.('.draft-overview')){draftOverviewOpen=event.target.open;return;}if(event.target.matches?.('.log, .lineup-reference')){readingOpen[event.target.matches('.log')?'log':'lineup']=event.target.open;scheduleAI();}},true);
 if(sessionUpdated||!hadSavedSession)save();
 render();
