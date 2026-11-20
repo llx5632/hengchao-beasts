@@ -16,6 +16,7 @@ import * as tutorial from '../../dist/tutorial.js';
 import * as tutorialUI from '../../dist/tutorial-ui.js';
 import * as easterEgg from '../../dist/easter-egg.js';
 import {createMusicPlayer} from '../../dist/music.js';
+import {createFeedbackPlayer,matchFeedback} from '../../dist/feedback.js';
 
 // Run the real UI handlers with an isolated storage adapter and clock.
 // Only details/dialog behavior used by these regressions is represented here;
@@ -48,7 +49,7 @@ export function appHarness(saved=null) {
   },querySelectorAll(){return [];},addEventListener(name,handler){listeners[name]=handler;}};
   const context=vm.createContext({...data,...engine,...session,...ai,...flow,...selection,...combat,...roster,...tutorial,...tutorialUI,...easterEgg,...storageModule,...ui,...cardView,...catalogView,
     Date:class extends Date{static now(){return clock;}},
-    structuredClone,crypto,console,document,createMusicPlayer,
+    structuredClone,crypto,console,document,createMusicPlayer,createFeedbackPlayer,matchFeedback,
     localStorage:{getItem:key=>storage.get(key)??null,setItem(key,value){if(blocked)throw new Error('QuotaExceededError');storage.set(key,value);}},
     setTimeout(callback,delay){const id=++sequence;timers.set(id,{callback,delay});return id;},clearTimeout(id){timers.delete(id);},
     window:{scrollTo(){}},matchMedia(){return {matches:false};}

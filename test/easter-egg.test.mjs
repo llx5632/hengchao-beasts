@@ -60,7 +60,7 @@ test('拼点第五小局赢光AI时触发，公共自动推进被彩蛋弹窗暂
   s.match=m;s.players.forEach((p,i)=>p.cards=structuredClone(m.inventories[i]));
   const h=appHarness(s);assert.equal(h.eggDialog.open,false);h.click('point',{value:'3'});
   assert.equal(h.run('store.players[1].cards.length'),0);assert.equal(h.eggDialog.open,true);
-  assert.ok(!h.delays.includes(4000));
+  assert.ok(!h.delays.includes(4600));
 });
 test('AI尚有卡、无正式赢卡证据或仅教学赢卡均不误触发',()=>{
   assert.equal(earnedEasterEgg(freshSession()),false);

@@ -99,6 +99,7 @@ function battleAction(m,action) {
   const result=resolveCombatAction(b,p,action);
   m.battle=result.state;
   m.battle.last={player:p,text:result.text,before:{hp:[...b.hp],remaining:[...b.remaining]},after:{hp:[...result.state.hp],remaining:[...result.state.remaining]}};log(m,result.text);
+  m.battle.last.feedback=result.feedback;
   if(!result.finished)m.phase='battle-turn';
   else if(result.winner===null)finish(m,null,action.type==='retreat'&&result.state.remaining[p]===0?'撤退成功，平局，双方保留卡牌':result.effects.reflectTriggered.some(Boolean)?'反刺及死亡反应后双方HP归零，平局，双方保留卡牌':result.effects.deathTriggered.some(Boolean)?'殒爆后双方HP归零，平局，双方保留卡牌':'双方持续伤害同时归零，平局，双方保留卡牌');
   else {const winner=result.winner,loser=1-winner;transfer(m,loser,activeBattleInstance(m,loser).id,'战斗获胜');finish(m,winner,result.effects.reflectTriggered.some(Boolean)?'反刺及死亡反应结算后HP归零，战斗结束':result.effects.burnDamage.some(Boolean)?'持续伤害结算后HP归零，战斗结束':'对方剩余 HP 为 0，战斗获胜');}
@@ -108,6 +109,16 @@ export function dispatch(match,action,rng=Math.random) {
   check(match.status === 'active','本场对局已经结束');
   const m=structuredClone(match);
   if (action.type === 'control') { check([0,1].includes(action.player),'未知玩家'); check(['ai','human'].includes(action.control),'未知控制方式'); m.controls[action.player]=action.control; return m; }
+  if(action.type==='next-round-timeout'){
+    check(m.mode==='point'&&m.round>0&&m.round<5&&['round-result','between'].includes(m.phase),'当前不能自动进入下一小局');
+    m.decisions=(m.phase==='between'?m.decisions:[null,null]).map(value=>value??'continue');
+    resolveDecisions(m,rng);
+    return m;
+  }
+  if(action.type==='decision'&&m.phase==='round-result'&&m.mode==='point'&&m.round<5){
+    m.phase='between';
+    m.decisions=[null,null];
+  }
   if (action.type === 'advance') {
     if (m.phase === 'rps-result') m.phase='battle-action';
     else if (['battle-reveal','battle-turn','rps-tie'].includes(m.phase)) { m.rps=[null,null]; m.phase='rps'; }

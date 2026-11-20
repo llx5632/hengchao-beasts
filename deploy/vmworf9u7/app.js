@@ -1,12 +1,12 @@
 import { loadSession, saveSession } from './storage.js';
-import { esc, btn } from './ui.js';
+import { esc, btn, rpsFace } from './ui.js';
 import { cardInfo, card, playedCard } from './card-view.js';
 import { renderCatalog } from './catalog-view.js';
 import { CARDS, CARD, TWIN_PARTNERS, BEATS, ELEMENTS, METRICS, POINT_NUMBERS, pointMetricIndex, skillText } from './data.js';
 import { dispatch, expectedPlayers, aiAction, randomInt } from './engine.js';
 import { freshSession, createLocalMatch } from './session.js';
 import { DIFFICULTIES, normalizeDifficulty } from './ai.js';
-import { scheduledStep } from './flow.js';
+import { scheduledStep, pointRoundPending } from './flow.js';
 import { SELECTION_SORTS, selectionCards, selectionSummary } from './selection.js';
 import { previewSkill, battleEndedBySurrender, combatStatuses, resolveCombatAction, battleForViewer, skillAvailable, skillUnavailableReason, twinBloodBonus } from './combat.js';
 import { selectionDraft, createPreset, resolvePreset, canLeaveSelection } from './roster.js';
@@ -14,15 +14,20 @@ import { newTutorial, beginTutorialLesson, tutorialAction } from './tutorial.js'
 import { renderTutorial } from './tutorial-ui.js';
 import { EASTER_EGG_MESSAGES, FIREWORKS_DURATION, unlockEasterEgg, nextEasterEgg, fireworksMarkup } from './easter-egg.js';
 import { createMusicPlayer } from './music.js';
+import { createFeedbackPlayer, matchFeedback } from './feedback.js';
 
 const app=document.querySelector('#app');
 const fresh=freshSession;
 const music=createMusicPlayer();
+const feedback=createFeedbackPlayer(app);
 let {store,hadSavedSession,sessionUpdated}=loadSession(()=>localStorage);
 let route=store.match&&!(store.selectionLobby&&canLeaveSelection(store.match)) ? 'match' : 'home', draft=selectionDraft(store.match), filter='全部', owner=0, timer=null, toastTimer=null, previewCardId=null, paused=false;
 let selectionElement='全部',selectionSort='default',selectionAscending=false,selectedOnly=false,draftOverviewOpen=false;
 let presetsOpen=false,draftNotice=draft.length?'已恢复上次未封存的选卡。':'';
 let diceSaveBlocked=false;
+let pendingDiceFeedback=[];
+let audioMenuOpen=false;
+let pointCountdown=null, countdownTimer=null;
 let storageFailed=false,readingOpen={log:false,lineup:false};
 let eggTimer=null,eggAdvanceAt=0;
 if(store.tutorial.status==='active')route='tutorial';
@@ -46,11 +51,30 @@ function openTutorial(){
   if(store.tutorial.status==='paused'){store.tutorial.status='active';route='tutorial';save();render();window.scrollTo(0,0);return;}
   store.tutorial=newTutorial();route='home';save();render();welcomeTutorial();
 }
+function interactionFeedback(kind, element){
+  feedback.interact(kind,element,()=>store.effectsEnabled);
+}
+function selectionFeedback(id, selected, tutorial=false, restoreFocus=false){
+  const action=tutorial?'tutorial-choose':'choose-card';
+  const control=[...document.querySelectorAll(`[data-action="${action}"]`)].find(node=>node.dataset.instance===id);
+  if(restoreFocus)control?.focus({preventScroll:true});
+  const card=tutorial?control?.closest('.tutorial-pick'):control;
+  interactionFeedback(selected?'select':'deselect',card??document.querySelector('.draft-panel'));
+}
 function sendTutorial(action){
   try{
+    const before=store.tutorial;
+    const restoreFocus=action.type==='choose'&&document.activeElement?.dataset.instance===action.id;
     store.tutorial=tutorialAction(store.tutorial,action);
-    route=store.tutorial.status==='completed'?'home':'tutorial';save();render();
-    if(action.type!=='choose'){window.scrollTo(0,0);document.querySelector('#tutorial-heading')?.focus({preventScroll:true});}
+    const cues=before.lesson===store.tutorial.lesson?matchFeedback(before.match,store.tutorial.match):[];
+    const showResult=hasRevealSequence(cues);
+    const showCards=!showResult&&cues.length>0&&store.tutorial.match?.mode==='battle';
+    route=store.tutorial.status==='completed'?'home':'tutorial';save();render({cues,showCards});
+    if(action.type==='choose')selectionFeedback(action.id,store.tutorial.draft.includes(action.id),true,restoreFocus);
+    if(action.type!=='choose'){
+      if(!showCards&&!showResult)window.scrollTo(0,0);
+      document.querySelector('#tutorial-heading')?.focus({preventScroll:true});
+    }
     if(store.tutorial.status==='completed')toast('新手教程已完成，正式收藏保持不变。可以开始自己的对局了。');
   }catch(error){toast(error.message);}
 }
@@ -90,21 +114,37 @@ function openCard(id){
   const c=CARD[id];if(!c)return;
   const d=document.querySelector('#card-dialog');
   d.innerHTML=`<header class="viewer-head"><div><div class="eyebrow">完整卡面 · 可滚动查看</div><h2 id="card-dialog-title">${c.name}</h2></div>${btn('关闭卡面','close-card','ghost small','autofocus')}</header><div class="viewer-body"><img src="${c.art}" alt="${c.name}完整卡面" width="1024" height="1536">${cardInfo(c)}</div>`;
-  d.showModal();scheduleAI();
+  d.showModal();
+  interactionFeedback('inspect',d);
+  scheduleAI();
 }
 function stateChange(last,field,player){if(!last?.before||!last.after)return '';const before=last.before[field][player],after=last.after[field][player],delta=after-before;if(!delta)return '';const good=field==='hp'?delta>0:delta<0;return `<span class="state-delta ${good?'benefit':'cost'}">${delta>0?'+':''}${delta}</span>`;}
 function battleState(c,state,player,showChanges=false){const last=showChanges?state.last:null;return `<div class="battle-state"><p><span>${name(player)} · 剩余 HP</span><b>${state.hp[player]} / ${c.hp} ${stateChange(last,'hp',player)}</b></p><div class="hp-track"><div class="hp-fill" style="width:${state.hp[player]/c.hp*100}%"></div></div><p><span>本局剩余撤退</span><b>${state.remaining[player]} ${stateChange(last,'remaining',player)}</b></p>${store.match?.status==='active'?battleStatusView(state,player):''}</div>`;}
 function hiddenCard(){return '<div class="hidden-card"><span class="crest">✦</span><p>衡潮谱印</p><small>对方卡牌尚未公开</small></div>';}
-function header(){const active=store.match?.status==='active'&&!canLeaveSelection(store.match);return `<header class="topbar"><button class="brand" data-action="home"><span class="crest">✦</span><span><strong>衡潮群岛</strong><small>THE TIDEBORNE ARCHIPELAGO</small></span></button><nav class="nav" aria-label="主导航"><button data-action="home" class="${route==='home'||route==='match'?'active':''}">${active?'当前对局':'对局大厅'}</button><button data-action="codex" class="${route==='codex'?'active':''}">异兽图鉴</button><button data-action="collection" class="${route==='collection'?'active':''}">我的收藏</button><button data-action="help">规则</button></nav><span class="edition">玩家对 AI · 本地首版</span></header>`;}
-function musicButton(){
-  return btn('背景音乐','music-toggle','ghost small',`aria-pressed="${store.musicEnabled}"`);
+function header(){const active=store.match?.status==='active'&&!canLeaveSelection(store.match);return `<header class="topbar"><button class="brand" data-action="home"><span class="crest">✦</span><span><strong>衡潮群岛</strong><small>THE TIDEBORNE ARCHIPELAGO</small></span></button><nav class="nav" aria-label="主导航"><button data-action="home" class="${route==='home'||route==='match'?'active':''}">${active?'当前对局':'对局大厅'}</button><button data-action="codex" class="${route==='codex'?'active':''}">异兽图鉴</button><button data-action="collection" class="${route==='collection'?'active':''}">我的收藏</button><button data-action="help">规则</button></nav>${audioControls()}</header>`;}
+function audioControls(){
+  return `<div class="audio-controls">
+    <button type="button" class="audio-disclosure" data-action="audio-menu" aria-label="音频设置" aria-expanded="${audioMenuOpen}" aria-controls="audio-options"><span aria-hidden="true">🔊</span></button>
+    <div class="audio-options" id="audio-options" role="group" aria-label="音频设置">
+      <button type="button" class="audio-switch" data-action="music-toggle" aria-label="背景音乐" aria-pressed="${store.musicEnabled}">音乐</button>
+      <button type="button" class="audio-switch" data-action="effects-toggle" aria-label="对局音效" aria-pressed="${store.effectsEnabled}">音效</button>
+    </div>
+  </div>`;
+}
+function setAudioMenu(open, restoreFocus=false){
+  audioMenuOpen=open;
+  const button=document.querySelector('[data-action="audio-menu"]');
+  button?.setAttribute('aria-expanded',String(open));
+  if(restoreFocus)button?.focus();
 }
 function syncMusic(gesture=false){
   const match=route==='tutorial'?store.tutorial.match:route==='match'?store.match:null;
   const scene=match?.mode==='battle'&&match.status==='active'?'battle':'explore';
   music.update(scene,{enabled:store.musicEnabled,visible:!document.hidden,gesture});
 }
-function footer(){return `<footer class="footer game-footer"><span>衡潮群岛 / 原创异兽卡牌</span>${musicButton()}<span>本地浏览器保存 · 抽卡后续开放</span></footer>`;}
+function footer(){
+  return '<footer class="footer"><span>衡潮群岛 / 原创异兽卡牌</span><span>本地浏览器保存 · 抽卡后续开放</span></footer>';
+}
 function difficultyPicker(){return `<fieldset class="difficulty-picker"><legend>对手难度</legend><div class="difficulty-options">${Object.entries(DIFFICULTIES).map(([value,option])=>`<label class="difficulty-option ${store.difficulty===value?'selected':''}"><input type="radio" name="difficulty" value="${value}" data-action="difficulty" ${store.difficulty===value?'checked':''}><span><strong>${option.label}</strong><small>${option.description}</small></span></label>`).join('')}</div><p>开局前选择，整场使用同一难度。</p></fieldset>`;}
 function home(){
   const a=store.players[0].cards.length,b=store.players[1].cards.length,pending=canLeaveSelection(store.match);
@@ -119,8 +159,8 @@ function home(){
 function catalog(){return renderCatalog({isCollection:route==='collection',players:store.players,owner,filter});}
 function scoreboard(m){return `<div class="scoreboard"><div class="player"><strong>${name(0)}</strong><span class="badge">${m.controls[0]==='ai'?'AI 代出':'本地玩家'}</span><small>持有 ${m.inventories[0].length} 张${m.mode==='point'?` · 已胜 ${m.scores[0]} 小局`:''}</small></div><div class="score">${m.mode==='point'?`${m.scores[0]}<span>:</span>${m.scores[1]}`:'VS'}</div><div class="player"><strong>${name(1)}</strong><span class="badge">AI 对手 · ${DIFFICULTIES[normalizeDifficulty(m.difficulty)].label}</span><small>持有 ${m.inventories[1].length} 张${m.mode==='point'?` · 已胜 ${m.scores[1]} 小局`:''}</small></div></div>`;}
 function track(m,p=0){return `<div class="round-track">${[0,1,2,3,4].map(i=>{const r=m.rounds[i];return `<div class="round-cell"><small>第 ${i+1} 小局</small><b class="${r?.kind==='win'?(r.winner===p?'win':'loss'):''}">${!r?'—':r.kind==='same'?'＝':r.winner===p?'√':'×'}</b><span>${!r?'未进行':r.kind==='same'?'同卡跳过':r.winner===p?'获胜':'失利'}</span></div>`;}).join('')}</div>`;}
-function battleBoard(m){const side=p=>{const c=CARD[m.battle.cards[p]];const visual=store.battleCompact?`<button class="combat-card" data-action="zoom" data-card="${c.id}" aria-label="放大${c.name}完整卡面"><img src="${c.art}" alt="${c.name}卡面缩略图"><span><strong>${c.name}</strong><small>${c.element} · ${c.tier} · 点击查看完整卡面</small></span></button>`:playedCard(c);return `<div class="battle-combatant">${visual}${battleState(c,m.battle,p,['battle-turn','finished'].includes(m.phase)&&!battleEndedBySurrender(m))}</div>`;};return `<div class="board ${store.battleCompact?'compact-board':''}" aria-label="双方战斗状态">${side(0)}<span class="versus">VS</span>${side(1)}</div>`;}
-function pointBoard(m,p,both=false){return `<div class="board">${both||p===0?playedCard(CARD[m.point.cards[0].cardId]):hiddenCard()}<span class="versus">VS</span>${both||p===1?playedCard(CARD[m.point.cards[1].cardId]):hiddenCard()}</div>`;}
+function battleBoard(m){const side=p=>{const c=CARD[m.battle.cards[p]];const visual=store.battleCompact?`<button class="combat-card" data-action="zoom" data-card="${c.id}" aria-label="放大${c.name}完整卡面"><img src="${c.art}" alt="${c.name}卡面缩略图"><span><strong>${c.name}</strong><small>${c.element} · ${c.tier} · 点击查看完整卡面</small></span></button>`:playedCard(c);return `<div class="battle-combatant" data-feedback-side="${p}">${visual}${battleState(c,m.battle,p,['battle-turn','finished'].includes(m.phase)&&!battleEndedBySurrender(m))}</div>`;};return `<div class="board ${store.battleCompact?'compact-board':''}" aria-label="双方战斗状态">${side(0)}<span class="versus">VS</span>${side(1)}</div>`;}
+function pointBoard(m,p,both=false){return `<div class="board"><div data-feedback-side="0">${both||p===0?playedCard(CARD[m.point.cards[0].cardId]):hiddenCard()}</div><span class="versus">VS</span><div data-feedback-side="1">${both||p===1?playedCard(CARD[m.point.cards[1].cardId]):hiddenCard()}</div></div>`;}
 function lineupPreview(m){
   const canConfirm=m.controls[0]==='human'&&!m.lineupReady[0];
   return `<section class="lineup-preview"><div class="panel center"><div class="eyebrow">先公开阵容 · 再分别打乱</div><h2>双方五张出战牌已公开</h2><p>出战卡已封存，不能更换。你可以查看、放大双方卡牌，了解各自阵容后再开始。</p><p>下方排列不代表出场顺序；确认后才会洗牌，每小局仍只直接展示自己的当前卡。</p></div>${m.lineups.map((cards,p)=>`<section class="lineup-side" aria-label="${name(p)}的公开阵容"><div class="section-heading"><h3>${name(p)} · 五张出战牌</h3><span class="badge">${m.lineupReady[p]?'已确认':'待确认'}</span></div><div class="lineup-grid">${cards.map(i=>`<figure>${playedCard(CARD[i.cardId])}<figcaption><strong>${CARD[i.cardId].name}</strong><span>${CARD[i.cardId].element} · ${CARD[i.cardId].tier}</span></figcaption></figure>`).join('')}</div></section>`).join('')}<div class="sticky-action"><span>${canConfirm?'确认后分别洗牌，出场顺序保密。':m.lineupReady[0]?'你已确认阵容，等待对方确认。':'AI 正在确认阵容。'}</span>${canConfirm?btn('已了解阵容，打乱并继续','lineup-ready'):''}</div></section>`;
@@ -130,14 +170,14 @@ function lineupReference(m){
   const played=new Set(m.rounds.flatMap(r=>r.cards.map(c=>c.id)));
   return `<details class="lineup-reference" ${readingOpen.lineup?'open':''}><summary>查看公开阵容与已出场卡</summary><p>仅标记已结束小局的出场卡；未结算卡的顺序保持保密。</p>${m.lineups.map((cards,p)=>`<section aria-label="${name(p)}的阵容记录"><h3>${name(p)} · ${cards.filter(c=>!played.has(c.id)).length} 张未结算</h3><div class="lineup-reference-grid">${cards.map(i=>`<button class="lineup-note ${played.has(i.id)?'used':''}" data-action="zoom" data-card="${i.cardId}" aria-label="查看${name(p)}阵容中的${CARD[i.cardId].name}"><strong>${CARD[i.cardId].name}</strong><span>${CARD[i.cardId].element} · ${played.has(i.id)?'已出场':'未结算'}</span></button>`).join('')}</div></section>`).join('')}</details>`;
 }
-function metricStrip(current=-1){return `<div class="metric-table" aria-label="六个比拼项">${METRICS.map((metric,i)=>`<div class="${i===current?'current':''}"><strong>${i+1}</strong>${metric.name}</div>`).join('')}</div>`;}
+function metricStrip(current=-1){return `<div class="metric-table" aria-label="六个比拼项">${METRICS.map((metric,i)=>`<div class="${i===current?'current':''}" ${i===current?'data-reveal-step="metric"':''}><strong>${i+1}</strong>${metric.name}</div>`).join('')}</div>`;}
 const rpsNames={rock:'石头',scissors:'剪刀',paper:'布'};
 const rpsGlyphs={rock:'◉',scissors:'✂',paper:'▤'};
 function rpsResult(m){
   if(battleEndedBySurrender(m)||!m.rps.every(Boolean))return '';
   const tie=m.rps[0]===m.rps[1],winner=tie?null:m.battle.actor;
   if(store.battleCompact&&['battle-action','battle-turn','finished'].includes(m.phase))return `<div class="rps-inline" role="status"><span>${name(0)} ${rpsGlyphs[m.rps[0]]} ${rpsNames[m.rps[0]]}</span><span>${name(1)} ${rpsGlyphs[m.rps[1]]} ${rpsNames[m.rps[1]]}</span><strong>${tie?'平手':`${name(winner)} 获得行动权`}</strong></div>`;
-  return `<div class="rps-reveal" role="status"><div class="rps-hands">${[0,1].map(p=>`<div class="rps-hand ${winner===p?'rps-winner':''}"><small>${name(p)}</small><b aria-hidden="true">${rpsGlyphs[m.rps[p]]}</b><span>${rpsNames[m.rps[p]]}</span><em>${tie?'平手':winner===p?'获胜 · 获得行动权':'未获得行动权'}</em></div>`).join('')}</div><p>${tie?'双方平手，均不行动，重新猜拳。':`${name(winner)} 获得一次行动权，执行一次进攻或撤退。`}</p></div>`;
+  return `<div class="rps-reveal" role="status"><div class="rps-hands" data-reveal-step="choices">${[0,1].map(p=>`<div class="rps-hand ${winner===p?'rps-winner':''}"><small>${name(p)}</small><div class="rps-face-window" data-rps-roll>${rpsFace(m.rps[p])}</div><em data-reveal-step="outcome">${tie?'平手':winner===p?'获胜 · 获得行动权':'未获得行动权'}</em></div>`).join('')}</div><p data-reveal-step="outcome">${tie?'双方平手，均不行动，重新猜拳。':`${name(winner)} 获得一次行动权，执行一次进攻或撤退。`}</p></div>`;
 }
 function actionFeedback(m){
   const last=battleEndedBySurrender(m)?null:m.battle?.last;if(!last)return '';
@@ -251,30 +291,37 @@ function privateTurn(m,p){
 }
 function comparisonView(comparison){
   if(!comparison)return '';
-  const points=`<p class="revealed-points">${comparison.numbers.map((value,p)=>`<span>${name(p)} 出点 <strong>${value}</strong></span>`).join('')}</p>`;
-  if(comparison.kind==='double-zero')return `<div class="comparison">${points}<h3>双方均出 0 · 本次平手</h3><p>本次不比较属性，双方当前卡牌已公开；不推进小局、不交换卡牌。</p>${metricStrip()}</div>`;
+  const points=`<p class="revealed-points" data-reveal-step="choices">${comparison.numbers.map((value,p)=>`<span>${name(p)} 出点 <strong>${value}</strong></span>`).join('')}</p>`;
+  if(comparison.kind==='double-zero')return `<div class="comparison">${points}<h3 data-reveal-step="values">双方均出 0 · 本次平手</h3><p>本次不比较属性，双方当前卡牌已公开；不推进小局、不交换卡牌。</p>${metricStrip()}</div>`;
   const metric=METRICS[comparison.metric],tie=comparison.values[0]===comparison.values[1],winner=comparison.values[0]>comparison.values[1]?0:1;
-  return `<div class="comparison">${points}${comparison.metric!==pointMetricIndex(comparison.sum)?'<p class="legacy-comparison">此为调整前的已结算结果；下一次比拼使用当前编号规则。</p>':''}<h3>本次比拼 · ${metric.name}</h3><div class="comparison-values">${comparison.values.map((value,p)=>`<div class="${!tie&&winner===p?'value-winner':''}"><small>${name(p)}</small><strong>${value}<span>${metric.unit}</span></strong><b>${tie?'同分':winner===p?'较大 · 获胜':'失利'}</b></div>`).join('')}</div>${metricStrip(comparison.metric)}</div>`;
+  return `<div class="comparison">${points}${comparison.metric!==pointMetricIndex(comparison.sum)?'<p class="legacy-comparison">此为调整前的已结算结果；下一次比拼使用当前编号规则。</p>':''}<h3 data-reveal-step="metric">本次比拼 · ${metric.name}</h3><div class="comparison-values" data-reveal-step="values">${comparison.values.map((value,p)=>`<div class="${!tie&&winner===p?'value-winner':''}"><small>${name(p)}</small><strong>${value}<span>${metric.unit}</span></strong><b>${tie?'同分':winner===p?'较大 · 获胜':'失利'}</b></div>`).join('')}</div>${metricStrip(comparison.metric)}</div>`;
 }
 function sharedTurn(m){
   if(m.phase==='lineup-reveal')return lineupPreview(m);
   if(m.phase==='battle-reveal')return `${battleBoard(m)}<section class="panel center"><h3>双方亮牌 · 互不克制</h3><p>独立对局状态已初始化为满血和基础撤退点数。</p>${btn('开始猜拳','advance')}</section>`;
-  if(m.phase==='rps-result')return `${battleBoard(m)}<section class="panel center"><h3>猜拳揭晓 · ${name(m.battle.actor)} 获胜</h3>${rpsResult(m)}${btn(m.battle.actor===0&&m.controls[0]==='human'?'选择本次行动':'进入胜者行动','advance')}</section>`;
-  if(m.phase==='rps-tie')return `${battleBoard(m)}<section class="panel center"><h3>猜拳平手 · 重新出拳</h3>${rpsResult(m)}${btn('重新猜拳','advance')}</section>`;
+  if(m.phase==='rps-result')return `${battleBoard(m)}<section class="panel center"><h3 data-reveal-step="outcome">猜拳揭晓 · ${name(m.battle.actor)} 获胜</h3>${rpsResult(m)}${btn(m.battle.actor===0&&m.controls[0]==='human'?'选择本次行动':'进入胜者行动','advance')}</section>`;
+  if(m.phase==='rps-tie')return `${battleBoard(m)}<section class="panel center"><h3 data-reveal-step="outcome">猜拳平手 · 重新出拳</h3>${rpsResult(m)}${btn('重新猜拳','advance')}</section>`;
   if(m.phase==='battle-turn')return `${battleBoard(m)}<section class="panel center"><h3>${name(m.battle.last.player)} 的行动结束</h3>${rpsResult(m)}${actionFeedback(m)}${btn('进入下一轮猜拳','advance')}</section>`;
-  if(m.phase==='point-tie')return `${pointBoard(m,0,true)}<section class="panel center"><h3>比拼平手 · 双方卡牌已公开</h3>${comparisonView(m.point.comparisons.at(-1))}<p>使用当前两张卡重新选点，直到分出胜负。</p>${btn('使用原卡重新选点','advance')}</section>`;
-  if(m.phase==='round-result'){
-    const r=m.rounds.at(-1);
-    return `${pointBoard(m,0,true)}<section class="panel center"><div class="eyebrow">第 ${m.round} 小局结束</div><h3>${r.kind==='same'?'同一种异兽 · 直接跳过':`${name(r.winner)} 获胜`}</h3>${comparisonView(r.comparison)}<p>${r.kind==='same'?'双方各自保留卡牌，本局已计入进度。':'胜者保留自己的卡，并获得对方本次出场卡。两张出场卡均不再参与后续小局。'}</p>${btn(m.round===5?'查看整场结果':'前往下一小局','advance')}${track(m)}</section>`;
-  }
+  if(m.phase==='point-tie')return `${pointBoard(m,0,true)}<section class="panel center"><h3 data-reveal-step="values">比拼平手 · 双方卡牌已公开</h3>${comparisonView(m.point.comparisons.at(-1))}<p>使用当前两张卡重新选点，直到分出胜负。</p>${btn('使用原卡重新选点','advance')}</section>`;
+  if(m.phase==='round-result')return pointRoundResult(m);
   if(m.phase==='dice-choice')return diceTurn(m);
   if(m.phase==='battle-action')return `${battleBoard(m)}<section class="panel center"><h3>${name(m.battle.actor)} 正在选择行动</h3>${rpsResult(m)}<p>本次只有猜拳胜者执行一次进攻或撤退。</p></section>`;
   const board=m.mode==='battle'&&m.battle?battleBoard(m):m.mode==='point'&&m.phase==='point'?pointBoard(m,0,m.point.revealed):'';
   return `${board}<div class="loading" role="status">群岛 AI 正在思考…${m.controls[0]==='human'?'<small>你的选择已封存，双方完成后同时揭晓。</small>':''}</div>`;
 }
+function pointRoundResult(m){
+  const r=m.rounds.at(-1);
+  const canChoose=m.controls[0]==='human'&&(m.phase==='round-result'||m.decisions[0]===null);
+  const penalty=Math.ceil((5-m.round)/2);
+  const controls=m.round===5?btn('查看整场结果','advance'):canChoose?`<div class="toolbar" style="justify-content:center">
+    ${btn('继续下一小局<span data-next-round-seconds></span>','decision','','data-value="continue"')}
+    ${btn(`投降 · 随机失去 ${penalty} 张`,'decision','danger','data-value="surrender"')}
+  </div>`: '<p class="subtle">等待双方确认下一小局…</p>';
+  return `${pointBoard(m,0,true)}<section class="panel center"><div class="eyebrow">第 ${m.round} 小局结束</div><h3 data-feedback-transfer data-reveal-step="values">${r.kind==='same'?'同一种异兽 · 直接跳过':`${name(r.winner)} 获胜`}</h3>${comparisonView(r.comparison)}<p>${r.kind==='same'?'双方各自保留卡牌，本局已计入进度。':'胜者保留自己的卡，并获得对方本次出场卡。两张出场卡均不再参与后续小局。'}</p>${controls}${track(m)}</section>`;
+}
 function finalView(m){
   const transfers=m.transfers.map(t=>`${name(t.from)} → ${name(t.to)}：${CARD[t.cardId].name}（${t.reason}）`);
-  return `<section class="panel center"><div class="eyebrow">ENCOUNTER COMPLETE · 对局已结算</div><div class="result-title ${m.winner===null?'draw':''}">${m.winner===null?'整场平局':`${name(m.winner)} 胜利`}</div><p>${esc(m.reason)}${m.winner!==null?`<br>${name(1-m.winner)} 失败`:''}</p>${m.mode==='point'?`${track(m,0)}<p class="footnote">以上 √ / × 以${name(0)}视角显示；${name(1)}的胜负相反。＝ 代表同卡跳过。</p>`:`${battleBoard(m)}${rpsResult(m)}${actionFeedback(m)}`}<div class="transfer-list">${transfers.length?transfers.map(esc).join('<br>'):'本场没有发生卡牌转移，双方保留原卡。'}</div><div class="toolbar" style="justify-content:center">${btn('返回对局大厅','finish-home')}${btn('查看收藏','finish-collection','ghost')}</div></section>`;
+  return `<section class="panel center"><div class="eyebrow">ENCOUNTER COMPLETE · 对局已结算</div><div class="result-title ${m.winner===null?'draw':''}">${m.winner===null?'整场平局':`${name(m.winner)} 胜利`}</div><p data-feedback-result>${esc(m.reason)}${m.winner!==null?`<br>${name(1-m.winner)} 失败`:''}</p>${m.mode==='point'?`${track(m,0)}<p class="footnote">以上 √ / × 以${name(0)}视角显示；${name(1)}的胜负相反。＝ 代表同卡跳过。</p>`:`${battleBoard(m)}${rpsResult(m)}${actionFeedback(m)}`}<div class="transfer-list" data-feedback-transfer>${transfers.length?transfers.map(esc).join('<br>'):'本场没有发生卡牌转移，双方保留原卡。'}</div><div class="toolbar" style="justify-content:center">${btn('返回对局大厅','finish-home')}${btn('查看收藏','finish-collection','ghost')}</div></section>`;
 }
 function flowOptions(){return {autoAdvance:store.autoAdvance,paused,dialogOpen:!!document.querySelector('dialog[open], .log[open], .lineup-reference[open]'),hidden:document.hidden};}
 function flowControls(m){
@@ -284,7 +331,7 @@ function flowControls(m){
 }
 function flowStatus(m){
   const options=flowOptions(),step=scheduledStep(m,options);
-  return paused?'已暂停自动处理，可手动操作。':options.dialogOpen?'正在查看内容，自动处理已暂停。':m.phase==='lineup-reveal'&&!m.lineupReady[0]&&m.controls[0]==='human'?'查看阵容后请手动确认，不会自动洗牌。':step?.kind==='advance'?`约 ${step.delay/1000} 秒后继续，也可点击下方按钮。`:step?.kind==='ai'?'等待 AI 提交。':expectedPlayers(m).includes(0)?'等待你的选择，不会自动提交。':'手动推进：点击下方按钮继续。';
+  return paused?'已暂停自动处理，可手动操作。':options.dialogOpen?'正在查看内容，自动处理已暂停。':m.phase==='lineup-reveal'&&!m.lineupReady[0]&&m.controls[0]==='human'?'查看阵容后请手动确认，不会自动洗牌。':step?.kind==='next-round'?'倒计时结束后进入下一小局，也可提前确认。':step?.kind==='advance'?`约 ${step.delay/1000} 秒后继续，也可点击下方按钮。`:step?.kind==='ai'?'等待 AI 提交。':expectedPlayers(m).includes(0)?'等待你的选择，不会自动提交。':'手动推进：点击下方按钮继续。';
 }
 function matchView(){
   const m=store.match;
@@ -292,29 +339,89 @@ function matchView(){
   const myTurn=expectedPlayers(m).includes(0)&&m.controls[0]==='human';
   const battleView=m.mode==='battle'&&m.battle;
   const tools=(canLeaveSelection(m)?btn('返回对局大厅','home','ghost small'):'')+(battleView?btn(store.battleCompact?'切换完整视图':'切换紧凑视图','battle-layout','ghost small',`aria-pressed="${store.battleCompact}"`):'')+(m.status==='active'?btn(m.controls[0]==='ai'?'恢复自己操作':'暂离 / AI代出','control','ghost small')+(battleView?btn('投降','battle-surrender','danger small'):''):'');
-  const content=m.status==='finished'?finalView(m):myTurn?privateTurn(m,0):sharedTurn(m);
+  const content=m.status==='finished'?finalView(m):pointRoundPending(m)?pointRoundResult(m):myTurn?privateTurn(m,0):sharedTurn(m);
   return `<main class="wrap ${battleView?'battle-match':''} ${battleView&&store.battleCompact?'compact':''}"><div class="match-head"><div><div class="eyebrow">${m.mode==='battle'?'相性决斗 / BATTLE':'衡量试炼 / POINT DUEL'}</div><h2>${m.status==='finished'?'对局结果':m.mode==='battle'?'相性决斗':m.phase==='lineup-reveal'?'衡量试炼 · 阵容展示':`衡量试炼 · ${Math.min(m.phase==='round-result'?m.round:m.round+1,5)} / 5`}</h2></div><div class="match-tools">${tools}</div></div>${scoreboard(m)}${flowControls(m)}${battleView&&store.battleCompact&&m.status==='active'?`<div class="combat-layout">${content}</div>`:content}${lineupReference(m)}<details class="log" ${readingOpen.log?'open':''}><summary>查看已公开的对局记录（${m.history.length}）</summary><ol>${m.history.map(t=>`<li>${esc(t)}</li>`).join('')}</ol></details></main>`;
 }
-function render({resetReading=false}={}){
+const hasRevealSequence=cues=>cues.some(({kind})=>kind==='rps-hands'||kind==='point-numbers');
+function render({resetReading=false,cues=[],showCards=false}={}){
+  feedback.clear();
   syncMusic();
   if(resetReading)readingOpen={log:false,lineup:false};
   else for(const [key,selector] of [['log','.log'],['lineup','.lineup-reference']]){const node=document.querySelector(selector);if(node)readingOpen[key]=node.open;}
-  app.innerHTML=`<div class="shell">${route==='tutorial'?'':header()}${storageFailed?`<div class="save-warning" role="alert"><span>存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。</span>${btn('重试保存','retry-save','ghost small')}</div>`:''}${diceSaveBlocked?'<main class="wrap panel"><h2>骰点正在等待存档写入</h2><p>请重试保存后继续，当前结果会保留。</p></main>':route==='tutorial'?renderTutorial(store.tutorial,playedCard):route==='match'?matchView():route==='home'?home():catalog()}${footer()}</div>`;scheduleAI();
+  app.innerHTML=`<div class="shell">${route==='tutorial'?'':header()}${storageFailed?`<div class="save-warning" role="alert"><span>存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。</span>${btn('重试保存','retry-save','ghost small')}</div>`:''}${diceSaveBlocked?'<main class="wrap panel"><h2>骰点正在等待存档写入</h2><p>请重试保存后继续，当前结果会保留。</p></main>':route==='tutorial'?renderTutorial(store.tutorial,playedCard,audioControls()):route==='match'?matchView():route==='home'?home():catalog()}${footer()}</div>`;scheduleAI();
+  if(hasRevealSequence(cues)&&matchMedia('(max-width: 760px)').matches){
+    document.querySelector('[data-reveal-step="choices"]')?.scrollIntoView({block:'center',behavior:'instant'});
+  }
+  if(showCards)document.querySelector('[data-tutorial-combat]')?.scrollIntoView({block:'center',behavior:'instant'});
+  if(!diceSaveBlocked)feedback.show(cues,()=>store.effectsEnabled);
 }
-function send(action){if(diceSaveBlocked)return toast('请先重试保存，再继续当前骰点。');try{const beforePhase=store.match.phase;store.match=dispatch(store.match,action);store.players.forEach((p,i)=>p.cards=structuredClone(store.match.inventories[i]));draft=selectionDraft(store.match);if(store.match.phase!=='select'||store.match.selections[0]!==null){delete store.match.selectionDraft;delete store.selectionDrafts[store.match.mode];draftNotice='';}const saved=save();if(!saved&&(beforePhase==='dice-choice'||store.match.phase==='dice-choice'))diceSaveBlocked=true;render();if(beforePhase!==store.match.phase){if(store.match.phase==='lineup-reveal')window.scrollTo(0,0);else if(store.match.mode==='battle'&&store.battleCompact)document.querySelector('.combat-layout')?.scrollIntoView({block:'start'});}maybeOpenEasterEgg();}catch(error){toast(error.message);}}
+function send(action){
+  if(diceSaveBlocked)return toast('请先重试保存，再继续当前骰点。');
+  try{
+    const before=store.match;
+    store.match=dispatch(before,action);
+    const cues=matchFeedback(before,store.match);
+    store.players.forEach((p,i)=>p.cards=structuredClone(store.match.inventories[i]));
+    draft=selectionDraft(store.match);
+    if(store.match.phase!=='select'||store.match.selections[0]!==null){
+      delete store.match.selectionDraft;
+      delete store.selectionDrafts[store.match.mode];
+      draftNotice='';
+    }
+    if(!save()&&(before.phase==='dice-choice'||store.match.phase==='dice-choice')){
+      diceSaveBlocked=true;
+      pendingDiceFeedback=cues;
+    }
+    render({cues});
+    if(!diceSaveBlocked&&action.player===0&&before.controls[0]==='human'&&before.phase===store.match.phase&&['rps','point'].includes(action.type)){
+      interactionFeedback('commit');
+    }
+    if(before.phase!==store.match.phase){
+      if(store.match.phase==='lineup-reveal')window.scrollTo(0,0);
+      else if(!hasRevealSequence(cues)&&store.match.mode==='battle'&&store.battleCompact)document.querySelector('.combat-layout')?.scrollIntoView({block:'start'});
+    }
+    maybeOpenEasterEgg();
+  }catch(error){toast(error.message);}
+}
 function scheduleAI(){
-  clearTimeout(timer);if(diceSaveBlocked)return;
+  clearTimeout(timer);clearTimeout(countdownTimer);
+  if(pointCountdown&&pointCountdown.deadline!==null){
+    pointCountdown.remaining=Math.max(0,pointCountdown.deadline-Date.now());
+    pointCountdown.deadline=null;
+  }
+  if(diceSaveBlocked)return;
   const m=store.match;
   if(route!=='match')return;
   const status=document.querySelector('.flow-controls [role="status"]');if(status&&m?.status==='active')status.textContent=flowStatus(m);
-  const step=scheduledStep(m,flowOptions());if(!step)return;
+  const step=scheduledStep(m,flowOptions());
+  const count=document.querySelector('[data-next-round-seconds]');
+  if(count)count.textContent='';
+  const round=pointRoundPending(m)?m.rounds.at(-1):null;
+  if(pointCountdown?.round!==round)pointCountdown=null;
+  if(!step)return;
+  let delay=step.delay;
+  if(step.kind==='next-round'){
+    pointCountdown??={round,remaining:delay,deadline:null};
+    delay=pointCountdown.remaining;
+    pointCountdown.deadline=Date.now()+delay;
+    if(count){
+      const update=()=>{
+        const remaining=Math.max(0,pointCountdown.deadline-Date.now());
+        const seconds=Math.ceil(remaining/1000);
+        count.textContent=`（${seconds}s后自动进入）`;
+        if(seconds>0)countdownTimer=setTimeout(update,remaining-(seconds-1)*1000);
+      };
+      update();
+    }
+  }
   timer=setTimeout(()=>{
     if(store.match!==m||route!=='match')return;
     const current=scheduledStep(m,flowOptions());
     if(!current||current.kind!==step.kind||current.player!==step.player)return;
-    const action=step.kind==='advance'?{type:'advance'}:aiAction(m,step.player);
+    if(step.kind==='next-round'&&count)count.textContent='（0s后自动进入）';
+    const action=step.kind==='next-round'?{type:'next-round-timeout'}:step.kind==='advance'?{type:'advance'}:aiAction(m,step.player);
     if(action)send(action);
-  },step.delay);
+  },delay);
 }
 function start(mode){
   try{
@@ -330,6 +437,24 @@ function start(mode){
 }
 document.addEventListener('click',event=>{
   const target=event.target.closest('[data-action]');
+  if(audioMenuOpen&&!event.target.closest('.audio-controls'))setAudioMenu(false);
+  if(target?.dataset.action==='audio-menu'){
+    setAudioMenu(!audioMenuOpen);
+    if(event.isTrusted){
+      if(store.effectsEnabled)feedback.unlock();
+      syncMusic(true);
+    }
+    return;
+  }
+  if(target?.dataset.action==='effects-toggle'){
+    store.effectsEnabled=!store.effectsEnabled;
+    target.setAttribute('aria-pressed',String(store.effectsEnabled));
+    save();
+    if(!store.effectsEnabled)feedback.stopAudio();
+    else if(event.isTrusted)feedback.unlock();
+    return;
+  }
+  if(event.isTrusted&&store.effectsEnabled)feedback.unlock();
   if(target?.dataset.action==='music-toggle'){
     store.musicEnabled=!store.musicEnabled;
     target.setAttribute('aria-pressed',String(store.musicEnabled));
@@ -351,7 +476,14 @@ document.addEventListener('click',event=>{
   if(a==='close-dialog'){document.querySelector('#dialog').close();return;}
   if(a==='close-card'){document.querySelector('#card-dialog').close();return;}
   if(a==='dismiss-release'){delete store.releaseNotice;save();render();return;}
-  if(a==='retry-save'){const saved=save();render();if(saved)toast('已成功写入浏览器存档。');return;}
+  if(a==='retry-save'){
+    const saved=save();
+    const cues=saved?pendingDiceFeedback:[];
+    if(saved)pendingDiceFeedback=[];
+    render({cues});
+    if(saved)toast('已成功写入浏览器存档。');
+    return;
+  }
   if(a==='zoom')return openCard(target.dataset.card);
   if(a==='tutorial-open')return openTutorial();
   if(a==='tutorial-begin'){store.tutorial=beginTutorialLesson(store.tutorial);route='tutorial';document.querySelector('#dialog').close();save();render();window.scrollTo(0,0);return;}
@@ -384,13 +516,27 @@ document.addEventListener('click',event=>{
     selectionElement='全部';selectedOnly=false;saveDraft();render();return;
   }
   if(a==='delete-preset'){store.lineupPresets=store.lineupPresets.filter(s=>s.id!==target.dataset.preset);const saved=save();render();if(saved)toast('已删除常用阵容，当前选卡保留。');return;}
-  if(a==='preview-card'){previewCardId=target.dataset.card;render();if(matchMedia('(max-width: 800px)').matches)document.querySelector('.selection-preview').scrollIntoView({block:'start'});return;}
+  if(a==='preview-card'){
+    previewCardId=target.dataset.card;
+    render();
+    const preview=document.querySelector('.selection-preview');
+    if(matchMedia('(max-width: 800px)').matches)preview?.scrollIntoView({block:'start'});
+    interactionFeedback('inspect',preview);
+    return;
+  }
   if(a==='auto-toggle'){store.autoAdvance=!store.autoAdvance;save();render();return;}
   if(a==='pause'){paused=!paused;render();return;}
   if(a==='selection-element'){selectionElement=target.dataset.value;render();return;}
   if(a==='selection-direction'){selectionAscending=!selectionAscending;render();return;}
   if(a==='selection-clear'){selectionElement='全部';selectedOnly=false;render();return;}
-  if(a==='remove-draft'){draft=draft.filter(id=>id!==target.dataset.instance);draftNotice='';saveDraft();render();return;}
+  if(a==='remove-draft'){
+    const id=target.dataset.instance;
+    const restoreFocus=document.activeElement===target;
+    draft=draft.filter(instance=>instance!==id);
+    draftNotice='';saveDraft();render();
+    selectionFeedback(id,false,false,restoreFocus);
+    return;
+  }
   if(a==='help'){modal('谱印对决 · 玩法说明','<p><b>玩家对 AI：</b>你与 AI 初始各有全套异兽，每种一张。你只操作自己一侧，AI 自动选卡、选点和出拳；双方完成选择后同时揭晓。拼点在普通平手前隐藏 AI 的当前卡。</p><p><b>战斗：</b>秘密选一张并同时亮牌。火→草→岩→风→水→火，克制直接判胜；中立时秘密猜拳，胜者进攻或撤退。撤退剩余点数减到 0 判平局。</p><p><b>拼点：</b>双方先秘密封存五张，同时公开阵容；确认后分别打乱。小局开始只直接展示自己的卡，对方的当前卡仍保密。秘密选 0～6 或随机，双方揭晓后，点数总和对应下方编号，超过 6 循环；双方均出 0 时直接判本次平手，亮牌后用原卡重新选点，不推进小局、不交换卡牌。编号依次为：1名字、2最大HP、3基础撤退、4最高基础伤害、5身高、6体重。平手亮牌后用原卡重选，同卡跳过。</p><p><b>收藏：</b>胜者拿走败者当前卡。拼点投降按剩余5/4/3/2/1张随机罚3/2/2/1/1张；双方在小局之间秘密决定，一起公布。</p><p><b>技能：</b>回血不超过最大HP；阻退增加对方本局剩余撤退，上限暂为基础值＋2。伤害致胜后立即结算。持续伤害在任一方实际行动结束时触发，首次施加从下次行动起，猜拳不触发；直接击败或撤退成功立即结束，免除后续持续伤害。</p><p>你可以暂离并由 AI 接管自己一侧，随后恢复操作。对手始终由 AI 控制；真实联网掉线与重连留待联网阶段。</p>');return;}
   if(['home','codex','collection'].includes(a)){
     if(canLeaveSelection(m)){store.selectionLobby=true;saveDraft();route=a;filter='全部';render();window.scrollTo(0,0);return;}
@@ -407,13 +553,16 @@ document.addEventListener('click',event=>{
     modal('恢复全部卡牌？','<p>你与 AI 将重新拥有全套异兽，每种一张。当前收藏与上一场记录将被替换，仅影响本浏览器。</p>','confirm-reset','恢复全部卡牌');return;
   }
   if(a==='confirm-reset'){
-    const presets=store.lineupPresets,compact=store.battleCompact,tutorial=store.tutorial,musicEnabled=store.musicEnabled;clearTimeout(eggTimer);store=fresh();store.easterEgg=null;store.lineupPresets=presets;store.battleCompact=compact;store.tutorial=tutorial;store.musicEnabled=musicEnabled;store.selectionDrafts={};store.selectionLobby=false;draft=[];draftNotice='';route='home';save();document.querySelector('#dialog').close();render();return;
+    const presets=store.lineupPresets,compact=store.battleCompact,tutorial=store.tutorial,musicEnabled=store.musicEnabled,effectsEnabled=store.effectsEnabled;clearTimeout(eggTimer);store=fresh();store.easterEgg=null;store.lineupPresets=presets;store.battleCompact=compact;store.tutorial=tutorial;store.musicEnabled=musicEnabled;store.effectsEnabled=effectsEnabled;store.selectionDrafts={};store.selectionLobby=false;draft=[];draftNotice='';route='home';save();document.querySelector('#dialog').close();render();return;
   }
   if(a==='choose-card'){
     const id=target.dataset.instance,count=m.mode==='point'?5:1;
+    const restoreFocus=document.activeElement===target;
     previewCardId=m.inventories[p].find(i=>i.id===id)?.cardId;
     if(draft.includes(id))draft=draft.filter(i=>i!==id);else if(count===1)draft=[id];else if(draft.length<count)draft.push(id);else return toast('已选满五张，请先取消一张。');
-    draftNotice='';saveDraft();render();return;
+    draftNotice='';saveDraft();render();
+    selectionFeedback(id,draft.includes(id),false,restoreFocus);
+    return;
   }
   if(a==='submit-cards')return send({type:'select',player:p,ids:[...draft]});
   if(a==='lineup-ready')return send({type:'lineup-ready',player:p});
@@ -457,7 +606,16 @@ for(const d of document.querySelectorAll('dialog')){
   }
   d.addEventListener('click',event=>{if(event.target!==d)return;const r=d.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)d.close();});
 }
-document.addEventListener('visibilitychange',()=>{syncMusic();scheduleAI();scheduleEggFireworks();});
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){feedback.clear();feedback.stopAudio();}
+  syncMusic();scheduleAI();scheduleEggFireworks();
+});
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&audioMenuOpen&&!document.querySelector('dialog[open]')){
+    event.preventDefault();
+    setAudioMenu(false,true);
+  }
+});
 document.addEventListener('toggle',event=>{if(!event.target.isConnected)return;if(event.target.matches?.('.preset-list')){presetsOpen=event.target.open;return;}if(event.target.matches?.('.draft-overview')){draftOverviewOpen=event.target.open;return;}if(event.target.matches?.('.log, .lineup-reference')){readingOpen[event.target.matches('.log')?'log':'lineup']=event.target.open;scheduleAI();}},true);
 if(sessionUpdated||!hadSavedSession)save();
 render();

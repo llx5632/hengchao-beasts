@@ -27,6 +27,9 @@
 .tutorial-side h3{font-size:13px;margin:0 0 12px;font-weight:400;color:var(--muted)}
 .tutorial-beast{margin:0;min-width:0;text-align:center}
 .tutorial-beast .played-card{display:block;width:100%;max-width:180px;margin:auto}
+.tutorial-card-face{position:relative;max-width:180px;margin:auto;border-radius:10px}
+[data-tutorial-combat] .tutorial-card-face .feedback-number{top:40%;right:7%;padding:0 7px;border-radius:5px;background:#fff7ec;line-height:1.25;text-shadow:none}
+.tutorial-vitals .tutorial-hp-track{height:6px;margin:-4px 4px 0}
 .tutorial-beast figcaption{display:flex;flex-direction:column;gap:5px;margin-top:11px;font-size:13px;line-height:1.6}
 .tutorial-beast figcaption>span{font-size:11px;color:var(--muted)}
 .tutorial-vitals{display:flex;flex-direction:column;gap:8px;max-width:230px;margin:16px auto 0;font-size:13px}

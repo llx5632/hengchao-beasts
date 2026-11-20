@@ -18,7 +18,7 @@ test('双方完整揭晓后保留展示阶段，AI 胜出也不能跳过揭晓�
     const original=battle();let m=won(original,winner);
     assert.equal(m.phase,'rps-result');assert.equal(m.battle.actor,winner);
     assert.deepEqual(expectedPlayers(m),[]);assert.deepEqual(m.battle.hp,original.battle.hp);
-    assert.deepEqual(scheduledStep(m),{kind:'advance',delay:2200});
+    assert.deepEqual(scheduledStep(m),{kind:'advance',delay:3200});
     assert.throws(()=>dispatch(m,{type:'attack',player:winner,skill:0}),/不能提交/);
     m=dispatch(m,{type:'advance'});assert.deepEqual(expectedPlayers(m),[winner]);
     assert.throws(()=>dispatch(m,{type:'retreat',player:1-winner}),/不能提交/);

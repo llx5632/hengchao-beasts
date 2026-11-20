@@ -99,10 +99,15 @@ export function resolveCombatAction(battle,player,action){
   for(const [k,v] of Object.entries(empty()))state[k]=[...(battle[k]??v)];
   const other=1-player,startCooling=state.cooling[player],startWard=[...state.deathWard],startBurn=[...state.burn],startSeal=state.seal[player],startDebt=state.debt[player],waiting=state.prediction[other],events=[],effects={shieldSpent:0,shieldBonus:0,shieldGranted:0,retreatReduced:0,drainBasis:0,drainPotential:0,coolingApplied:[false,false],coolingConsumed:[false,false],healing:0,delay:0,ownRetreatAdded:0,burnDamage:[0,0],burnSkipped:false,deferred:[0,0],settled:[0,0],cancelled:[0,0],deathDamage:[0,0],deathTriggered:[false,false],reviveTriggered:[false,false],reviveHealing:[0,0],reflectTriggered:[false,false],reflectBasis:[0,0],reflectRaw:[0,0],reflectBlocked:[0,0],reflectDamage:[0,0],directEnded:false};
   const label=p=>CARD[state.cards[p]].name;let text='',breakdown=null;
+  const feedback=[];
+  function changeHP(p, before, kind){
+    if(before!==state.hp[p])feedback.push({kind,p,before,after:state.hp[p],max:CARD[state.cards[p]].hp});
+  }
   // Each positive damage event consumes existing debt; newly deferred damage waits
   // for another event, including a later burn event in this same action.
   function receiveDamage(p,amount,direct=false){
     if(amount<=0)return 0;
+    const before=state.hp[p];
     const oldDebt=state.debt[p];let deferred=0;
     if(direct&&state.seal[p]){
       deferred=Math.min(30,Math.floor(amount/2));state.seal[p]=false;state.debt[p]=deferred;
@@ -114,6 +119,7 @@ export function resolveCombatAction(battle,player,action){
       const paid=Math.min(state.hp[p],oldDebt);state.hp[p]-=paid;state.debt[p]=0;effects.settled[p]+=paid;
       events.push(`${label(p)}再次受伤，结清待结伤势${oldDebt}（实际追加扣血${paid}）`);
     }
+    changeHP(p,before,'hit');
     return damage;
   }
   function outcome(finished=false,winner=null){
@@ -122,12 +128,13 @@ export function resolveCombatAction(battle,player,action){
       if(battle.hp[p]>60&&state.hp[p]<=60)events.push(`${label(p)}剩余HP降至${state.hp[p]}，绝境效果生效`);
       if(battle.hp[p]<=60&&state.hp[p]>60)events.push(`${label(p)}回血高于60，绝境效果解除`);
     }
-    return {state,finished,winner,text:text+(events.length?'；'+events.join('；'):''),events,effects,breakdown};
+    return {state,finished,winner,text:text+(events.length?'；'+events.join('；'):''),events,effects,breakdown,feedback};
   }
   function revive(p){
     if(state.hp[p]!==0||!state.reviveWard[p])return false;
     state.reviveWard[p]=false;state.reviveUsed[p]=true;
     state.hp[p]=Math.floor(CARD[state.cards[p]].hp/2);
+    changeHP(p,0,'heal');
     effects.reviveTriggered[p]=true;effects.reviveHealing[p]=state.hp[p];
     events.push(`${label(p)}回生伏印触发，HP恢复至最大HP的50%（${state.hp[p]}），致命伤溢出不再扣除`);
     return true;
@@ -152,10 +159,12 @@ export function resolveCombatAction(battle,player,action){
   }
   function actionEnd(){
     // Snapshot eligibility: newly applied damage waits; existing refreshed damage still ticks.
+    const batchStart=feedback.length;
     for(const p of [0,1])if(startBurn[p]){
       effects.burnDamage[p]=receiveDamage(p,15);state.burn[p]--;
       events.push(`${label(p)}受到${effects.burnDamage[p]}烙印伤害，${state.burn[p]?`剩余${state.burn[p]}次双方行动`:'烙印已结束'}`);
     }
+    if(feedback.length===batchStart+2)feedback[batchStart+1].withPrevious=true;
     const death=deathOutcome();if(death)return death;
     for(const p of [0,1])if(startWard[p]>0&&state.deathWard[p]>0){
       state.deathWard[p]--;events.push(state.deathWard[p]?`${label(p)}伏印剩余${state.deathWard[p]}次双方行动`:`${label(p)}伏印到期，本局不能重新挂印`);
@@ -216,6 +225,7 @@ export function resolveCombatAction(battle,player,action){
   const blocked=Math.min(afterReduction,state.shield[other]);
   if(state.shield[other]){state.shield[other]=0;events.push(`${label(other)}的护盾抵消${blocked}伤害，已消耗`);}
   const damage=receiveDamage(other,Math.max(0,afterReduction-blocked),true);
+  if(blocked>0&&blocked===afterReduction)feedback.push({kind:'block',p:other});
   if(skill.effect==='drain'){effects.drainBasis=damage;effects.drainPotential=Math.floor(damage*skill.amount/100);}
   const directDeferred=effects.deferred[other],directSettled=effects.settled[other];
   breakdown={base:skill.damage,targetMaxHp,percentBonus,die,bonus,raw,elementMultiplier,multiplier,vulnerabilityMultiplier,afterReduction,blocked,damage,directDeferred,directSettled,directLethal:state.hp[other]===0};text=`${skill.name}造成 ${damage} 伤害（直接）`;
@@ -240,8 +250,10 @@ export function resolveCombatAction(battle,player,action){
     events.push(`${old}转换为${CARD[partner].name}，继承全部战斗状态；战败将失去${CARD[partner].name}`);
   }
   // Healing is an attack aftereffect: reflection/death reactions must finish first.
+  const beforeHealing=state.hp[player];
   if(skill.effect==='drain'){effects.healing=Math.min(effects.drainPotential,CARD[state.cards[player]].hp-state.hp[player]);state.hp[player]+=effects.healing;events.push(`汲取基数${effects.drainBasis}，按${skill.amount}%取整${effects.drainPotential}，自己恢复 ${effects.healing} HP`);}
   if(skill.effect==='heal'){effects.healing=Math.min(skill.amount,CARD[state.cards[player]].hp-state.hp[player]);state.hp[player]+=effects.healing;text+=`，自己恢复 ${effects.healing} HP`;}
+  changeHP(player,beforeHealing,'heal');
   if(skill.effect==='delay'){effects.delay=Math.max(0,Math.min(skill.amount,CARD[state.cards[other]].retreat+2-state.remaining[other]));state.remaining[other]+=effects.delay;text+=`，对方剩余撤退 +${effects.delay}`;}
   if(skill.effect==='charge'){events.push(state.charge[player]?`${label(player)}已蓄势，不叠加`:`${label(player)}获得蓄势：裂风突袭＋${skill.amount}`);state.charge[player]=true;}
   if(skill.effect==='leaf-shield'){

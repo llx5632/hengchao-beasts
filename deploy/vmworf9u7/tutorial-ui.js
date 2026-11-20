@@ -1,3 +1,4 @@
+import {rpsFace} from './ui.js';
 import { CARD, BEATS, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
 import { tutorialGuidance, tutorialPointTarget } from './tutorial.js';
 
@@ -7,20 +8,20 @@ function pointExplanation(comparison,preview=false) {
   if(!comparison)return '';
   const {numbers,sum,metric,values}=comparison;
   const relation=values?values[0]===values[1]?'＝':values[0]>values[1]?'＞':'＜':null;
-  return `<div class="tutorial-point-formula" role="status"><small>${preview?'教学预演 · AI出点固定':'本次出点已揭晓'} · 你出${numbers[0]}，AI出${numbers[1]}</small><strong>${numbers[0]}＋${numbers[1]}＝${sum}<span aria-hidden="true"> → </span>${metric===null?'双零亮牌，用原卡重比':`第${metric+1}项 · ${METRICS[metric].name}`}</strong>${sum>METRICS.length?`<span>总和${sum}超过6，从第1项重新数，对应第${metric+1}项。</span>`:''}${values?`<span>你 ${values[0]}${METRICS[metric].unit} ${relation} AI ${values[1]}${METRICS[metric].unit}${preview?'':values[0]===values[1]?' · 数值相同，亮牌重比':values[0]>values[1]?' · 你赢下本小局':' · AI赢下本小局'}</span>`:''}${metric===null?'<span>总和0不对应比较项目，不消耗当前卡，也不转移谱印。</span>':''}</div>`;
+  return `<div class="tutorial-point-formula" role="status"><small data-reveal-step="choices">${preview?'教学预演 · AI出点固定':'本次出点已揭晓'} · 你出${numbers[0]}，AI出${numbers[1]}</small><strong data-reveal-step="${metric===null?'values':'metric'}">${numbers[0]}＋${numbers[1]}＝${sum}<span aria-hidden="true"> → </span>${metric===null?'双零亮牌，用原卡重比':`第${metric+1}项 · ${METRICS[metric].name}`}</strong>${sum>METRICS.length?`<span>总和${sum}超过6，从第1项重新数，对应第${metric+1}项。</span>`:''}${values?`<span data-reveal-step="values">你 ${values[0]}${METRICS[metric].unit} ${relation} AI ${values[1]}${METRICS[metric].unit}${preview?'':values[0]===values[1]?' · 数值相同，亮牌重比':values[0]>values[1]?' · 你赢下本小局':' · AI赢下本小局'}</span>`:''}${metric===null?'<span>总和0不对应比较项目，不消耗当前卡，也不转移谱印。</span>':''}</div>`;
 }
-export function renderTutorial(state,face) {
+export function renderTutorial(state,face,audioControls='') {
   const m=state.match,guide=tutorialGuidance(state),lesson=['attribute','battle','point'].indexOf(state.lesson);
   const result=['point-tie','round-result'].includes(m.phase)?m.point?.comparisons.at(-1):null;
   const target=m.phase==='point'?tutorialPointTarget(state):null;
   const preview=target===null?null:{numbers:[target,target===0?0:1],sum:target===0?0:target+1,metric:pointMetricIndex(target===0?0:target+1)};
   if(preview&&preview.metric!==null&&m.point.revealed)preview.values=m.point.cards.map(c=>METRICS[preview.metric].read(CARD[c.cardId]));
   const focusMetric=(preview??result)?.metric??null;
-  const figure=(c,detail='')=>`<figure class="tutorial-beast">${face(c)}<figcaption><strong>${c.name}</strong><span><b class="tutorial-element">${c.element}属性</b> · ${c.tier} · HP ${c.hp}</span>${detail}</figcaption></figure>`;
-  const battleBoard=()=>`<div class="tutorial-board">${m.battle.cards.map((id,p)=>{const c=CARD[id],last=m.battle.last,showChange=last&&(m.phase==='battle-turn'||m.status==='finished');
+  const figure=(c,detail='')=>`<figure class="tutorial-beast"><div class="tutorial-card-face" data-tutorial-card>${face(c)}</div><figcaption><strong>${c.name}</strong><span><b class="tutorial-element">${c.element}属性</b> · ${c.tier} · HP ${c.hp}</span>${detail}</figcaption></figure>`;
+  const battleBoard=()=>`<div class="tutorial-board" data-tutorial-combat>${m.battle.cards.map((id,p)=>{const c=CARD[id],last=m.battle.last,showChange=last&&(m.phase==='battle-turn'||m.status==='finished');
     const vital=(label,key,max='')=>{const before=showChange?last.before[key][p]:m.battle[key][p],after=m.battle[key][p],changed=before!==after;return `<span class="${changed?'tutorial-vital-changed':''}">${label}<b>${changed?`<span class="tutorial-before">${before}</span> → `:''}${after}${max}</b></span>`;};
-    return `<section class="tutorial-side"><h3>${p===0?'你':'教学 AI'}</h3>${figure(c)}<div class="tutorial-vitals">${vital('剩余 HP','hp',` / ${c.hp}`)}${vital('剩余撤退','remaining')}</div></section>`;}).join('')}</div>`;
-  const pointBoard=()=>`<div class="tutorial-board">${m.point.cards.map((i,p)=>`<section class="tutorial-side"><h3>${p===0?'你的当前卡':'AI的当前卡'}</h3>${p===0||m.point.revealed||['round-result','finished'].includes(m.phase)?figure(CARD[i.cardId]):'<div class="hidden-card tutorial-hidden"><span class="crest">✦</span><p>尚未亮牌</p><small>先根据公开阵容判断</small></div>'}</section>`).join('')}</div>`;
+    return `<section class="tutorial-side" data-feedback-side="${p}"><h3>${p===0?'你':'教学 AI'}</h3>${figure(c)}<div class="tutorial-vitals">${vital('剩余 HP','hp',` / ${c.hp}`)}<div class="hp-track tutorial-hp-track" aria-hidden="true"><div class="hp-fill" style="width:${m.battle.hp[p]/c.hp*100}%"></div></div>${vital('剩余撤退','remaining')}</div></section>`;}).join('')}</div>`;
+  const pointBoard=()=>`<div class="tutorial-board">${m.point.cards.map((i,p)=>`<section class="tutorial-side" data-feedback-side="${p}"><h3>${p===0?'你的当前卡':'AI的当前卡'}</h3>${p===0||m.point.revealed||['round-result','finished'].includes(m.phase)?figure(CARD[i.cardId]):'<div class="hidden-card tutorial-hidden"><span class="crest">✦</span><p>尚未亮牌</p><small>先根据公开阵容判断</small></div>'}</section>`).join('')}</div>`;
   const metrics=()=>`<section class="tutorial-point-map" aria-label="点数总和与比较项目"><p>双方各出0～6，<strong>相加后决定比较项目</strong>。总和1～6依次对应六项，超过6就从第1项重新数。</p><div class="tutorial-metrics">${METRICS.map((metric,i)=>`<div class="${i===focusMetric?'tutorial-metric-focus':''}" ${i===focusMetric?'aria-current="true"':''}><small>总和 ${i+1} / ${i+1+METRICS.length}</small><b>第${i+1}项</b><span>${metric.name}</span></div>`).join('')}</div><p class="tutorial-zero-note">特别情况：0＋0＝0 → 双零亮牌，用原卡重新选点。</p></section>`;
   let content='',actions='';
   if(state.summary){
@@ -35,10 +36,10 @@ export function renderTutorial(state,face) {
   }else if(m.mode==='battle'){
     content=battleBoard();
     const [own,opponent]=m.battle.cards.map(id=>CARD[id]),hasAdvantage=BEATS[own.element]===opponent.element;
-    content+=`<div class="tutorial-near-note"><strong>${hasAdvantage?`${own.element}克${opponent.element} → 直接获胜`:`${own.element}与${opponent.element}互不克制 → 猜拳争取行动权`}</strong><span>${hasAdvantage?'属性克制优先判胜，不比较HP或阶位。':'猜拳胜者本次可进攻一次，或让自己的剩余撤退减1。'}</span></div>`;
+    content+=`<div class="tutorial-near-note" data-feedback-result><strong>${hasAdvantage?`${own.element}克${opponent.element} → 直接获胜`:`${own.element}与${opponent.element}互不克制 → 猜拳争取行动权`}</strong><span>${hasAdvantage?'属性克制优先判胜，不比较HP或阶位。':'猜拳胜者本次可进攻一次，或让自己的剩余撤退减1。'}</span></div>`;
     if(m.phase==='rps')content+=`<div class="tutorial-rps"><p>这次练习请出石头</p><div class="options">${Object.entries(hands).map(([value,label])=>button(label,'rps',`data-value="${value}" ${value==='rock'?'':'disabled'}`)).join('')}</div></div>`;
     else if(m.phase==='rps-result'){
-      content+=`<div class="tutorial-outcome" role="status">你出${hands[m.rps[0]]} · AI出${hands[m.rps[1]]}<strong>${m.battle.actor===0?'你赢得':'AI赢得'}一次行动权</strong></div>`;
+      content+=`<div class="tutorial-outcome" role="status"><div class="rps-hands" data-reveal-step="choices">${m.rps.map((hand,p)=>`<div class="rps-hand ${m.battle.actor===p?'rps-winner':''}"><small>${p===0?'你':'教学 AI'}</small><div class="rps-face-window" data-rps-roll>${rpsFace(hand)}</div></div>`).join('')}</div><strong data-reveal-step="outcome">${m.battle.actor===0?'你赢得':'AI赢得'}一次行动权</strong></div>`;
       actions=button('查看本次行动','next');
     }else if(m.phase==='battle-action'){
       if(m.battle.actor===1)actions=`<div class="tutorial-action-hint"><strong>潮壳冲撞 · 35伤害</strong><span>你的HP：${m.battle.hp[0]} → ${m.battle.hp[0]-35}。观察自己卡牌下方的变化。</span></div>`+button('观察AI使用潮壳冲撞','next');
@@ -49,7 +50,7 @@ export function renderTutorial(state,face) {
       content+=`<div class="tutorial-outcome" role="status"><strong>${last.text}</strong><span>本次HP变化已标在受击卡牌下方；接下来重新猜拳。</span></div>`;
       actions=button('进入下一轮猜拳','next');
     }else if(m.status==='finished'){
-      content+=`<div class="tutorial-outcome" role="status"><strong>${m.reason}</strong><span>${m.winner===0?'本次练习获胜；正式对局会赢得对方出战谱印。':'本次平局，双方保留出战谱印。'}</span></div>`;
+      content+=`<div class="tutorial-outcome" role="status"><strong data-feedback-transfer>${m.reason}</strong><span>${m.winner===0?'本次练习获胜；正式对局会赢得对方出战谱印。':'本次平局，双方保留出战谱印。'}</span></div>`;
       if(state.lesson==='battle')content+='<p class="tutorial-retreat-reminder">苔团本次只需撤退一步，因为剩余撤退原本为1。其他卡可能需要多次争得行动权，逐步撤退到0。</p>';
       actions=button(state.lesson==='attribute'?'开始第二场：进攻与撤退':'开始拼点教学','next');
     }else actions=button('开始猜拳','next');
@@ -66,11 +67,11 @@ export function renderTutorial(state,face) {
     }else if(m.phase==='point-tie')actions=button('亮牌后重新选点','next');
     else if(m.phase==='round-result'){
       const r=m.rounds.at(-1),comparison=r.comparison;
-      content+=`<div class="tutorial-outcome" role="status"><strong>${r.kind==='same'?'同卡跳过':r.winner===0?'你赢下本小局':'教学AI赢下本小局'}</strong>${comparison?`<span>${METRICS[comparison.metric].name}：${comparison.values[0]} 对 ${comparison.values[1]}</span><span>本次出点：你 ${comparison.numbers[0]} · AI ${comparison.numbers[1]}</span>`:''}<span>已完成 ${m.round} / 5 小局 · 你的胜场 ${m.scores[0]}，AI ${m.scores[1]}</span></div>`;
+      content+=`<div class="tutorial-outcome" role="status"><strong data-feedback-transfer data-reveal-step="values">${r.kind==='same'?'同卡跳过':r.winner===0?'你赢下本小局':'教学AI赢下本小局'}</strong>${comparison?`<span>${METRICS[comparison.metric].name}：${comparison.values[0]} 对 ${comparison.values[1]}</span><span>本次出点：你 ${comparison.numbers[0]} · AI ${comparison.numbers[1]}</span>`:''}<span>已完成 ${m.round} / 5 小局 · 你的胜场 ${m.scores[0]}，AI ${m.scores[1]}</span></div>`;
       if(state.pointExercise)content+=`<div class="tutorial-free-practice">${button(m.round===5?'查看五小局结果':'继续自由练习剩余小局','next','',true)}</div>`;
       actions=state.pointExercise?button('教学结束','complete')+button('重试自主练习','practice','',true):button('现在自己判断一次','practice');
     }else actions=state.practiceDone?button('教学结束','complete'):button('现在自己判断一次','practice');
   }
   const optional=m.mode==='point'&&!state.summary?'<details class="tutorial-optional"><summary>可选说明：超过6循环、同卡跳过与投降罚卡</summary><p><strong>超过6循环：</strong>总和7～12重新对应第1～6项。例如总和7比名字字数。</p><p><strong>同卡跳过：</strong>双方当前出场同一种异兽时，直接跳过这一小局，双方保留谱印，计入五小局进度。</p><p><strong>投降罚卡：</strong>在小局之间投降，会从剩余5／4／3／2／1张未出场卡中，分别随机输掉3／2／2／1／1张。双方同时投降则平局免罚，已经结算的赢失卡保留。</p></details>':'';
-  return `<header class="tutorial-top"><a class="tutorial-brand" href="#" data-action="tutorial-pause">✦ 衡潮群岛</a><span>新手教程 · 独立练习</span>${button('稍后继续','pause','',true)}</header><main class="tutorial-wrap"><nav class="tutorial-progress" aria-label="教学进度">${['属性克制','进攻与撤退','拼点强弱项'].map((name,i)=>`<span class="${state.summary||i<lesson?'done':i===lesson?'current':''}" ${i===lesson&&!state.summary?'aria-current="step"':''}><b>${String(i+1).padStart(2,'0')}</b>${name}</span>`).join('')}</nav><section class="tutorial-guide" aria-labelledby="tutorial-heading"><div class="eyebrow">群岛探索入门 · ${state.summary?'全部教学已结束':`第 ${lesson+1} / 3 课`}</div><h1 id="tutorial-heading" tabindex="-1">${guide.title}</h1><p>${guide.text}</p><small>练习中的卡牌、出拳和部分点数固定；练习赢失卡不计入正式收藏。</small></section><section class="tutorial-play" aria-label="教学对局">${content}</section>${optional}${actions?`<div class="tutorial-actions">${actions}</div>`:''}</main>`;
+  return `<header class="tutorial-top"><a class="tutorial-brand" href="#" data-action="tutorial-pause">✦ 衡潮群岛</a><span>新手教程 · 独立练习</span>${audioControls}${button('稍后继续','pause','',true)}</header><main class="tutorial-wrap"><nav class="tutorial-progress" aria-label="教学进度">${['属性克制','进攻与撤退','拼点强弱项'].map((name,i)=>`<span class="${state.summary||i<lesson?'done':i===lesson?'current':''}" ${i===lesson&&!state.summary?'aria-current="step"':''}><b>${String(i+1).padStart(2,'0')}</b>${name}</span>`).join('')}</nav><section class="tutorial-guide" aria-labelledby="tutorial-heading"><div class="eyebrow">群岛探索入门 · ${state.summary?'全部教学已结束':`第 ${lesson+1} / 3 课`}</div><h1 id="tutorial-heading" tabindex="-1">${guide.title}</h1><p>${guide.text}</p><small>练习中的卡牌、出拳和部分点数固定；练习赢失卡不计入正式收藏。</small></section><section class="tutorial-play" aria-label="教学对局">${content}</section>${optional}${actions?`<div class="tutorial-actions">${actions}</div>`:''}</main>`;
 }

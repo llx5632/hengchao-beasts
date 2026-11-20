@@ -5,6 +5,7 @@ import {resolve,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {CARDS} from '../dist/data.js';
 import {MUSIC_FILES} from '../dist/music.js';
+import {EFFECT_FILES} from '../dist/feedback.js';
 
 export async function checkDeploy(root=new URL('../deploy/',import.meta.url),expectedCards=CARDS){
   const entry=await readFile(new URL('index.html',root),'utf8'),version=entry.match(/<base href="\.\/(v[a-z0-9]+)\/">/)?.[1];
@@ -28,10 +29,10 @@ export async function checkDeploy(root=new URL('../deploy/',import.meta.url),exp
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
   const result=await checkDeploy();
-  for(const file of Object.values(MUSIC_FILES)){
+  for(const file of Object.values({...MUSIC_FILES,...EFFECT_FILES})){
     const source=await readFile(new URL(`../dist/${file}`,import.meta.url));
     const deployed=await readFile(new URL(`../deploy/${result.version}/${file}`,import.meta.url));
-    assert(deployed.equals(source),`部署配乐 ${file} 与源码资源不一致`);
+    assert(deployed.equals(source),`部署音频 ${file} 与源码资源不一致`);
   }
-  console.log(`部署资源检查通过：${result.version}，${result.cards}种卡牌、数据、卡面、图鉴及配乐一致。`);
+  console.log(`部署资源检查通过：${result.version}，${result.cards}种卡牌、数据、卡面、图鉴、配乐及音效一致。`);
 }

@@ -30,7 +30,7 @@ export const test=base.extend({
 export {expect};
 
 export function session(){
-  const value=freshSession();value.tutorial={version:1,status:'skipped'};value.musicEnabled=false;return value;
+  const value=freshSession();value.tutorial={version:1,status:'skipped'};value.musicEnabled=false;value.effectsEnabled=false;return value;
 }
 export async function openSession(page,value=session()){
   await page.addInitScript(({key,value})=>{
@@ -43,6 +43,10 @@ export async function openSession(page,value=session()){
   await page.goto('./');
 }
 export async function saved(page){return page.evaluate(key=>JSON.parse(localStorage.getItem(key)),SAVE_KEY);}
+export async function openAudioMenu(page){
+  const trigger=page.getByRole('button',{name:'音频设置',exact:true});
+  if(await trigger.isVisible()&&await trigger.getAttribute('aria-expanded')==='false')await trigger.click();
+}
 export async function noOverflow(page){
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'页面不应横向溢出').toBe(true);
 }

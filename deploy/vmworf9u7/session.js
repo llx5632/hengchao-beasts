@@ -15,6 +15,7 @@ export function freshSession() {
     autoAdvance: true,
     battleCompact: true,
     musicEnabled: true,
+    effectsEnabled: true,
     lineupPresets: [],
     selectionDrafts: {},
     players: ['探索者', '群岛 AI'].map((name, player) => ({

@@ -1,4 +1,4 @@
-import {test,expect,session,openSession,saved,noOverflow} from './fixtures.mjs';
+import {test,expect,session,openSession,saved,noOverflow,openAudioMenu} from './fixtures.mjs';
 
 test('背景音乐在交互后循环播放、切换场景、暂停并保存开关',async({page})=>{
   await page.addInitScript(()=>{
@@ -24,7 +24,7 @@ test('背景音乐在交互后循环播放、切换场景、暂停并保存开�
   const value=session();
   delete value.musicEnabled; // Existing player saves default to enabled.
   await openSession(page,value);
-  const toggle=page.getByRole('button',{name:'背景音乐',exact:true});
+  const toggle=page.locator('[data-action="music-toggle"]');
   const tracks=()=>page.evaluate(()=>window.musicTest.tracks);
   const state=()=>page.evaluate(()=>window.musicTest.context?.state);
   const visibility=hidden=>page.evaluate(hidden=>{
@@ -50,6 +50,7 @@ test('背景音乐在交互后循环播放、切换场景、暂停并保存开�
   await visibility(false);
   await expect.poll(state).toBe('running');
   expect(await tracks()).toEqual([explore,battle,explore]);
+  await openAudioMenu(page);
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed','false');
   await expect.poll(state).toBe('suspended');
@@ -57,7 +58,44 @@ test('背景音乐在交互后循环播放、切换场景、暂停并保存开�
   await page.reload();
   await expect(toggle).toHaveAttribute('aria-pressed','false');
   expect(await state()).toBeUndefined();
+  await openAudioMenu(page);
   await toggle.click();
   await expect.poll(tracks).toEqual([explore]);
   await noOverflow(page);
+});
+
+test('顶部音频入口在正式页面与教程可用，移动端菜单支持退出和保存',async({page})=>{
+  await openSession(page);
+  const menu=page.getByRole('button',{name:'音频设置',exact:true});
+  const switches=page.locator('#audio-options');
+  const mobile=await menu.isVisible();
+  await expect(page.locator('.topbar #audio-options')).toHaveCount(1);
+  await expect(page.locator('footer #audio-options')).toHaveCount(0);
+  if(mobile){
+    await expect(switches).toBeHidden();
+    await openAudioMenu(page);
+    await expect(menu).toHaveAttribute('aria-expanded','true');
+    await expect(switches).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeFocused();
+    await expect(switches).toBeHidden();
+  }else await expect(switches).toBeVisible();
+  await page.locator('[data-action="tutorial-open"]').click();
+  await page.locator('[data-action="tutorial-begin"]').click();
+  await expect(page.locator('.tutorial-top #audio-options')).toHaveCount(1);
+  await openAudioMenu(page);
+  const music=page.getByRole('button',{name:'背景音乐',exact:true});
+  const effects=page.getByRole('button',{name:'对局音效',exact:true});
+  await effects.click();
+  await expect(effects).toHaveAttribute('aria-pressed','true');
+  await expect(music).toHaveAttribute('aria-pressed','false');
+  if(mobile){
+    await page.locator('#tutorial-heading').click();
+    await expect(switches).toBeHidden();
+  }
+  await noOverflow(page);
+  await page.reload();
+  await openAudioMenu(page);
+  await expect(effects).toHaveAttribute('aria-pressed','true');
+  await expect(music).toHaveAttribute('aria-pressed','false');
 });

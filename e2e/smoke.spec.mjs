@@ -142,11 +142,13 @@ test('从选卡完成五小局拼点，实例守恒且结果可刷新',async({pa
   await page.getByRole('button',{name:'封存出战卡',exact:true}).click();
   await expect(page.getByRole('heading',{name:'双方五张出战牌已公开'})).toBeVisible();
   await page.getByRole('button',{name:'已了解阵容，打乱并继续',exact:true}).click();
+  await page.getByRole('button',{name:'继续下一小局',exact:true}).click();
   for(let round=0;round<5;round++){
-    await page.getByRole('button',{name:'继续下一小局',exact:true}).click();
     // AI selects 6; 6+6 compares weight, different for all five selected pairs.
     await page.getByRole('button',{name:'选择点数 6',exact:true}).click();
-    await page.getByRole('button',{name:round===4?'查看整场结果':'前往下一小局',exact:true}).click();
+    const next=page.getByRole('button',{name:round===4?'查看整场结果':'继续下一小局',exact:true});
+    await expect(page.locator('.comparison')).toBeVisible();
+    await next.click();
   }
   await expect(page.locator('.result-title')).toBeVisible();
   const before=await saved(page);
