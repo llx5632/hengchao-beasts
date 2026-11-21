@@ -225,3 +225,17 @@
 @media(prefers-reduced-motion:no-preference){
   :is(.btn,.nav button,.brand,.audio-switch,.audio-disclosure):active:not(:disabled){transform:scale(.98)}
 }
+
+.point-after-pending{visibility:hidden}
+@media(prefers-reduced-motion:no-preference){.comparison-values>div{transition:background-color .28s,border-color .28s,box-shadow .28s}}
+.comparison-values b{min-height:1.5em;line-height:1.5}
+.comparison-note{min-height:1.9em}
+[data-card-count]{display:inline-block}
+.transfer-token{position:fixed;width:64px;height:96px;object-fit:cover;border:1px solid #b99759;border-radius:5px;box-shadow:0 5px 20px #0004;z-index:100;pointer-events:none}
+.shuffle-overlay{position:fixed;inset:0;z-index:90;background:#152d27dd;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#e9d49e;gap:30px}
+.shuffle-packs{display:flex;gap:120px;padding:24px}
+.shuffle-pack{position:relative;width:72px;height:108px}
+.shuffle-pack span{position:absolute;inset:0;display:grid;place-items:center;background:radial-gradient(ellipse,#355a4b,#142d28);border:2px solid #b99759;box-shadow:inset 0 0 0 4px #142d28,inset 0 0 0 5px #b99759;border-radius:6px;font-size:32px}
+@media(max-width:640px){.shuffle-packs{gap:86px}}
+
+.point-match .flow-controls{position:static}

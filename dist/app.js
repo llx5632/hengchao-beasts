@@ -160,7 +160,7 @@ function home(){
   <div class="toolbar" style="margin-top:20px">${store.easterEgg?.status==='paused'?btn('继续彩蛋','egg-resume','ghost small'):''}${btn(store.tutorial.status==='paused'?'继续新手教程':store.tutorial.status==='completed'?'重温新手教程':'新手教程','tutorial-open','ghost small')}${store.match?.status==='finished'?btn('查看上一场结果','last-match','ghost small'):''}${btn('恢复全部卡牌','reset','ghost small')}<span class="subtle">恢复后双方重新拥有全套卡牌，方便重复体验。</span></div></main>`;
 }
 function catalog(){return renderCatalog({isCollection:route==='collection',players:store.players,owner,filter});}
-function scoreboard(m){return `<div class="scoreboard"><div class="player"><strong>${name(0)}</strong><span class="badge">${m.controls[0]==='ai'?'AI 代出':'本地玩家'}</span><small>持有 ${m.inventories[0].length} 张${m.mode==='point'?` · 已胜 ${m.scores[0]} 小局`:''}</small></div><div class="score">${m.mode==='point'?`${m.scores[0]}<span>:</span>${m.scores[1]}`:'VS'}</div><div class="player"><strong>${name(1)}</strong><span class="badge">AI 对手 · ${DIFFICULTIES[normalizeDifficulty(m.difficulty)].label}</span><small>持有 ${m.inventories[1].length} 张${m.mode==='point'?` · 已胜 ${m.scores[1]} 小局`:''}</small></div></div>`;}
+function scoreboard(m){return `<div class="scoreboard"><div class="player"><strong>${name(0)}</strong><span class="badge">${m.controls[0]==='ai'?'AI 代出':'本地玩家'}</span><small>持有 <span data-card-count="0">${m.inventories[0].length}</span> 张${m.mode==='point'?` · 已胜 ${m.scores[0]} 小局`:''}</small></div><div class="score">${m.mode==='point'?`${m.scores[0]}<span>:</span>${m.scores[1]}`:'VS'}</div><div class="player"><strong>${name(1)}</strong><span class="badge">AI 对手 · ${DIFFICULTIES[normalizeDifficulty(m.difficulty)].label}</span><small>持有 <span data-card-count="1">${m.inventories[1].length}</span> 张${m.mode==='point'?` · 已胜 ${m.scores[1]} 小局`:''}</small></div></div>`;}
 function track(m,p=0){return `<div class="round-track">${[0,1,2,3,4].map(i=>{const r=m.rounds[i];return `<div class="round-cell"><small>第 ${i+1} 小局</small><b class="${r?.kind==='win'?(r.winner===p?'win':'loss'):''}">${!r?'—':r.kind==='same'?'＝':r.winner===p?'√':'×'}</b><span>${!r?'未进行':r.kind==='same'?'同卡跳过':r.winner===p?'获胜':'失利'}</span></div>`;}).join('')}</div>`;}
 function battleBoard(m){const side=p=>{const c=CARD[m.battle.cards[p]];const visual=store.battleCompact?`<button class="combat-card" data-action="zoom" data-card="${c.id}" aria-label="放大${c.name}完整卡面"><img src="/art/${encodeURIComponent(c.art)}" alt="${c.name}卡面缩略图"><span><strong>${c.name}</strong><small>${c.element} · ${c.tier} · 点击查看完整卡面</small></span></button>`:playedCard(c);return `<div class="battle-combatant" data-feedback-side="${p}">${visual}${battleState(c,m.battle,p,['battle-turn','finished'].includes(m.phase)&&!battleEndedBySurrender(m))}</div>`;};return `<div class="board ${store.battleCompact?'compact-board':''}" aria-label="双方战斗状态">${side(0)}<span class="versus">VS</span>${side(1)}</div>`;}
 function pointBoard(m,p,both=false){return `<div class="board"><div data-feedback-side="0">${both||p===0?playedCard(CARD[m.point.cards[0].cardId]):hiddenCard()}</div><span class="versus">VS</span><div data-feedback-side="1">${both||p===1?playedCard(CARD[m.point.cards[1].cardId]):hiddenCard()}</div></div>`;}
@@ -295,9 +295,9 @@ function privateTurn(m,p){
 function comparisonView(comparison,pending=false){
   if(!comparison)return '';
   const points=`<p class="revealed-points" data-reveal-step="choices">${comparison.numbers.map((value,p)=>`<span>${name(p)} 出点 <strong>${value}</strong></span>`).join('')}</p>`;
-  if(comparison.kind==='double-zero')return `<div class="comparison">${points}${pending?'':'<p>本次不比较属性，双方当前卡牌已公开。</p>'}${metricStrip()}</div>`;
+  if(comparison.kind==='double-zero')return `<div class="comparison">${points}<p class="comparison-note">${pending?'&nbsp;':'本次不比较属性，双方当前卡牌已公开。'}</p>${metricStrip()}</div>`;
   const metric=METRICS[comparison.metric],tie=comparison.values[0]===comparison.values[1],winner=comparison.values[0]>comparison.values[1]?0:1;
-  return `<div class="comparison">${points}${comparison.metric!==pointMetricIndex(comparison.sum)?'<p class="legacy-comparison">此为调整前的已结算结果；下一次比拼使用当前编号规则。</p>':''}<h3 data-reveal-step="metric">本次比拼 · ${metric.name}</h3><div class="comparison-values" data-reveal-step="values">${comparison.values.map((value,p)=>`<div class="${!pending&&!tie&&winner===p?'value-winner':''}"><small>${name(p)}</small><strong>${value}<span>${metric.unit}</span></strong>${pending?'':`<b>${tie?'同分':winner===p?'较大 · 获胜':'失利'}</b>`}</div>`).join('')}</div>${metricStrip(comparison.metric)}</div>`;
+  return `<div class="comparison">${points}${comparison.metric!==pointMetricIndex(comparison.sum)?'<p class="legacy-comparison">此为调整前的已结算结果；下一次比拼使用当前编号规则。</p>':''}<h3 data-reveal-step="metric">本次比拼 · ${metric.name}</h3><div class="comparison-values" data-reveal-step="values">${comparison.values.map((value,p)=>`<div class="${!pending&&!tie&&winner===p?'value-winner':''}"><small>${name(p)}</small><strong>${value}<span>${metric.unit}</span></strong><b>${pending?'&nbsp;':tie?'同分':winner===p?'较大 · 获胜':'失利'}</b></div>`).join('')}</div>${metricStrip(comparison.metric)}</div>`;
 }
 function sharedTurn(m){
   if(m.phase==='lineup-reveal')return lineupPreview(m);
@@ -307,7 +307,7 @@ function sharedTurn(m){
   if(m.phase==='battle-turn')return `${battleBoard(m)}<section class="panel center"><h3>${name(m.battle.last.player)} 的行动结束</h3>${rpsResult(m)}${actionFeedback(m)}${btn('进入下一轮猜拳','advance')}</section>`;
   if(m.phase==='point-tie'){
     const pending=pointPresentation?.match===m;
-    return `${pointBoard(m,0,true)}<section class="panel center">${pointResultBanner(pending?'':'比拼平手 · 双方卡牌已公开')}${comparisonView(m.point.comparisons.at(-1),pending)}${pending?'':`<p>使用当前两张卡重新选点，直到分出胜负。</p>${btn('使用原卡重新选点','advance')}`}</section>`;
+    return `${pointBoard(m,0,true)}<section class="panel center">${pointResultBanner(pending?'':'比拼平手 · 双方卡牌已公开')}${comparisonView(m.point.comparisons.at(-1),pending)}<div data-point-after ${pending?'class="point-after-pending" inert aria-hidden="true"':''}><p>使用当前两张卡重新选点，直到分出胜负。</p>${btn('使用原卡重新选点','advance')}</div></section>`;
   }
   if(m.phase==='round-result')return pointRoundResult(m);
   if(m.phase==='dice-choice')return diceTurn(m);
@@ -317,16 +317,14 @@ function sharedTurn(m){
 }
 function pointRoundResult(m){
   const r=m.rounds.at(-1);
-  if(pointPresentation?.match===m){
-    return `${pointBoard(m,0,true)}<section class="panel center">${pointResultBanner()}${comparisonView(r.comparison,true)}</section>`;
-  }
+  const pending=pointPresentation?.match===m;
   const canChoose=m.controls[0]==='human'&&(m.phase==='round-result'||m.decisions[0]===null);
   const penalty=Math.ceil((5-m.round)/2);
   const controls=m.round===5?btn('查看整场结果','advance'):canChoose?`<div class="toolbar" style="justify-content:center">
     ${btn('继续下一小局<span data-next-round-seconds></span>','decision','','data-value="continue"')}
     ${btn(`投降 · 随机失去 ${penalty} 张`,'decision','danger','data-value="surrender"')}
   </div>`: '<p class="subtle">等待双方确认下一小局…</p>';
-  return `${pointBoard(m,0,true)}<section class="panel center">${pointResultBanner(r.kind==='same'?'同一种异兽 · 直接跳过':`${name(r.winner)} 获胜`)}${comparisonView(r.comparison)}<p>${r.kind==='same'?'双方各自保留卡牌，本局已计入进度。':'胜者保留自己的卡，并获得对方本次出场卡。两张出场卡均不再参与后续小局。'}</p>${controls}${track(m)}</section>`;
+  return `${pointBoard(m,0,true)}<section class="panel center">${pointResultBanner(pending?'':r.kind==='same'?'同一种异兽 · 直接跳过':`${name(r.winner)} 获胜`)}${comparisonView(r.comparison,pending)}<div data-point-after ${pending?'class="point-after-pending" inert aria-hidden="true"':''}><p>${r.kind==='same'?'双方各自保留卡牌，本局已计入进度。':'胜者保留自己的卡，并获得对方本次出场卡。两张出场卡均不再参与后续小局。'}</p>${controls}${track(pending?pointPresentation.before:m)}</div></section>`;
 }
 function finalView(m){
   const transfers=m.transfers.map(t=>`${name(t.from)} → ${name(t.to)}：${CARD[t.cardId].name}（${t.reason}）`);
@@ -335,9 +333,9 @@ function finalView(m){
 function flowOptions(){return {autoAdvance:store.autoAdvance,paused,dialogOpen:!!document.querySelector('dialog[open], .log[open], .lineup-reference[open]'),hidden:document.hidden};}
 function flowControls(m){
   if(m.status!=='active')return '';
-  if(pointPresentation?.match===m)return '';
+  const pending=pointPresentation?.match===m;
   const status=flowStatus(m);
-  return `<div class="flow-controls"><div class="toolbar">${btn('自动推进','auto-toggle',`ghost small ${store.autoAdvance?'enabled':''}`,`role="switch" aria-checked="${store.autoAdvance}"`)}${btn(paused?'继续自动处理':'暂停自动处理','pause','ghost small',`aria-pressed="${paused}"`)}</div><small role="status">${status}</small></div>`;
+  return `<div class="flow-controls" ${pending?'style="visibility:hidden" inert aria-hidden="true"':''}><div class="toolbar">${btn('自动推进','auto-toggle',`ghost small ${store.autoAdvance?'enabled':''}`,`role="switch" aria-checked="${store.autoAdvance}"`)}${btn(paused?'继续自动处理':'暂停自动处理','pause','ghost small',`aria-pressed="${paused}"`)}</div><small role="status">${status}</small></div>`;
 }
 function flowStatus(m){
   const options=flowOptions(),step=scheduledStep(m,options);
@@ -351,7 +349,7 @@ function matchView(){
   const battleView=m.mode==='battle'&&m.battle;
   const tools=(canLeaveSelection(m)?btn('返回对局大厅','home','ghost small'):'')+(battleView?btn(store.battleCompact?'切换完整视图':'切换紧凑视图','battle-layout','ghost small',`aria-pressed="${store.battleCompact}"`):'')+(m.status==='active'?btn(m.controls[0]==='ai'?'恢复自己操作':'暂离 / AI代出','control','ghost small')+(battleView?btn('投降','battle-surrender','danger small'):''):'');
   const content=m.status==='finished'?finalView(m):pointRoundPending(m)?pointRoundResult(m):myTurn?privateTurn(m,0):sharedTurn(m);
-  return `<main class="wrap ${battleView?'battle-match':''} ${battleView&&store.battleCompact?'compact':''}"><div class="match-head"><div><div class="eyebrow">${m.mode==='battle'?'相性决斗 / BATTLE':'衡量试炼 / POINT DUEL'}</div><h2>${m.status==='finished'?'对局结果':m.mode==='battle'?'相性决斗':m.phase==='lineup-reveal'?'衡量试炼 · 阵容展示':`衡量试炼 · ${Math.min(m.phase==='round-result'?m.round:m.round+1,5)} / 5`}</h2></div><div class="match-tools">${tools}</div></div>${scoreboard(publicMatch)}${flowControls(m)}${battleView&&store.battleCompact&&m.status==='active'?`<div class="combat-layout">${content}</div>`:content}${lineupReference(publicMatch)}<details class="log" ${readingOpen.log?'open':''}><summary>查看已公开的对局记录（${publicMatch.history.length}）</summary><ol>${publicMatch.history.map(t=>`<li>${esc(t)}</li>`).join('')}</ol></details></main>`;
+  return `<main class="wrap ${battleView?'battle-match':'point-match'} ${battleView&&store.battleCompact?'compact':''}"><div class="match-head"><div><div class="eyebrow">${m.mode==='battle'?'相性决斗 / BATTLE':'衡量试炼 / POINT DUEL'}</div><h2>${m.status==='finished'?'对局结果':m.mode==='battle'?'相性决斗':m.phase==='lineup-reveal'?'衡量试炼 · 阵容展示':`衡量试炼 · ${Math.min(m.phase==='round-result'?m.round:m.round+1,5)} / 5`}</h2></div><div class="match-tools">${tools}</div></div>${scoreboard(publicMatch)}${flowControls(m)}${battleView&&store.battleCompact&&m.status==='active'?`<div class="combat-layout">${content}</div>`:content}${lineupReference(publicMatch)}<details class="log" ${readingOpen.log?'open':''}><summary>查看已公开的对局记录（${publicMatch.history.length}）</summary><ol>${publicMatch.history.map(t=>`<li>${esc(t)}</li>`).join('')}</ol></details></main>`;
 }
 const hasRevealSequence=cues=>cues.some(({kind})=>kind==='rps-hands'||kind==='point-numbers');
 function presentPointResult(before,match,cues,destination){
@@ -364,12 +362,47 @@ function presentPointResult(before,match,cues,destination){
     if(pointPresentation!==pending)return;
     pointPresentation=null;
     if(route!==destination||(destination==='tutorial'?store.tutorial.match:store.match)!==match)return;
-    render({cues:cues.slice(index)});
+    if(destination==='match')revealPointResult(cues.slice(index));
+    else render({cues:cues.slice(index)});
     if(destination==='match')setTimeout(()=>{
       if(store.match===match)maybeOpenEasterEgg();
     },POINT_RESULT_PULSE_MS);
   },delay);
   return cues.slice(0,index);
+}
+function revealPointResult(cues){
+  const template=document.createElement('template');
+  template.innerHTML=matchView();
+  const next=template.content;
+  const banner=document.querySelector('[data-point-result]');
+  const updated=next.querySelector('[data-point-result]');
+  banner.textContent=updated.textContent;
+  banner.removeAttribute('aria-hidden');
+  banner.setAttribute('role','status');
+  const cells=document.querySelectorAll('.comparison-values > div');
+  next.querySelectorAll('.comparison-values > div').forEach((cell,index)=>{
+    cells[index].className=cell.className;
+    cells[index].querySelector('b').textContent=cell.querySelector('b').textContent;
+  });
+  const note=document.querySelector('.comparison-note');
+  if(note)note.textContent=next.querySelector('.comparison-note').textContent;
+  for(const selector of ['.flow-controls','[data-point-after]','.lineup-reference','.log']){
+    const current=document.querySelector(selector),replacement=next.querySelector(selector);
+    if(current&&replacement){
+      if(current.matches('details'))replacement.open=current.open;
+      current.replaceWith(replacement);
+    }
+  }
+  const oldScore=document.querySelector('.scoreboard');
+  const score=next.querySelector('.scoreboard');
+  oldScore.replaceWith(score);
+  if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
+    for(const [selector,delay] of [['[data-point-result]',0],['.score',80],['[data-point-after]',240]]){
+      document.querySelector(selector)?.animate([{opacity:0},{opacity:1}],{duration:280,delay,fill:'backwards',easing:'ease-out'});
+    }
+  }
+  scheduleAI();
+  feedback.show(cues,()=>store.effectsEnabled);
 }
 function render({resetReading=false,cues=[],showCards=false}={}){
   feedback.clear();
@@ -379,7 +412,7 @@ function render({resetReading=false,cues=[],showCards=false}={}){
   app.innerHTML=`<div class="shell">${route==='tutorial'?'':header()}${storageFailed?`<div class="save-warning" role="alert"><span>存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。</span>${btn('重试保存','retry-save','ghost small')}</div>`:''}${diceSaveBlocked?'<main class="wrap panel"><h2>骰点正在等待存档写入</h2><p>请重试保存后继续，当前结果会保留。</p></main>':route==='tutorial'?renderTutorial(store.tutorial,playedCard,audioControls(),pointPresentation?.match===store.tutorial.match):route==='match'?matchView():route==='home'?home():catalog()}${footer()}</div>`;scheduleAI();
   if(cues.length&&matchMedia('(max-width: 760px)').matches){
     if(hasRevealSequence(cues))document.querySelector('[data-reveal-step="choices"]')?.scrollIntoView({block:'center',behavior:'instant'});
-    else if(cues.some(({kind})=>kind==='point-result'))document.querySelector('[data-point-result]')?.scrollIntoView({block:'nearest',behavior:'instant'});
+
   }
   if(showCards)document.querySelector('[data-tutorial-combat]')?.scrollIntoView({block:'center',behavior:'instant'});
   if(!diceSaveBlocked)feedback.show(cues,()=>store.effectsEnabled);

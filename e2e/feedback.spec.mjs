@@ -11,11 +11,15 @@ async function setup(page, value) {
     window.cardAnimations=[];
     window.revealSteps=[];
     window.pointPulses=[];
+    window.transferFlights=[];
+    window.sealAnimations=0;
     window.rpsRolls=[];
     const animate=Element.prototype.animate;
     Element.prototype.animate=function(frames,options){
+      if(this.classList.contains('transfer-token'))window.transferFlights.push({duration:options.duration,counts:[...document.querySelectorAll('[data-card-count]')].map(node=>Number(node.textContent))});
+      if(this.matches('.lineup-grid figure'))window.sealAnimations++;
       if(this.dataset.revealStep)window.revealSteps.push({part:this.dataset.revealStep,delay:options.delay});
-      if(this.hasAttribute('data-point-result'))window.pointPulses.push(options.iterations);
+      if(this.hasAttribute('data-point-result')&&options.iterations)window.pointPulses.push(options.iterations);
       if(this.classList.contains('rps-roller'))window.rpsRolls.push({
         duration:options.duration,
         choices:[...this.children].map(face=>face.lastChild.textContent),
@@ -117,8 +121,32 @@ for(const outcome of ['victory','defeat','draw'])test(`最后一击与${outcome}
   const sounds=await events(page);
   expect(sounds.filter(event=>event.duration===duration)).toHaveLength(1);
   if(outcome!=='victory')expect(sounds.some(event=>event.duration===1030)).toBe(false);
+  if(outcome!=='draw'){
+    await expect.poll(()=>page.evaluate(()=>window.transferFlights.length)).toBe(1);
+    expect(await page.evaluate(()=>window.transferFlights[0])).toEqual({duration:560,counts:[33,33]});
+    await expect(page.locator('[data-card-count]')).toHaveText(outcome==='victory'?['34','32']:['32','34']);
+  }
   expect((await saved(page)).match.winner).toBe(outcome==='draw'?null:outcome==='victory'?0:1);
   await expect(page.locator('.result-title')).toBeVisible();
+  await noOverflow(page);
+});
+
+test('封存阵容收拢，确认后以牌背洗牌并播放纸声',async({page})=>{
+  await setup(page,session());
+  await page.locator('[data-action="start-point"]').click();
+  const choices=page.locator('.selection-tile [data-action="choose-card"]');
+  for(let index=0;index<5;index++)await choices.nth(index).click();
+  await ready(page);
+  await page.locator('[data-action="submit-cards"]').click();
+  await expect(page.locator('.lineup-preview')).toBeVisible();
+  await expect.poll(()=>page.evaluate(()=>window.sealAnimations)).toBe(10);
+  await page.locator('[data-action="lineup-ready"]').click();
+  await expect(page.locator('.shuffle-overlay')).toBeVisible();
+  await expect(page.locator('.shuffle-pack span')).toHaveCount(10);
+  await expect(page.locator('.shuffle-overlay img')).toHaveCount(0);
+  await page.screenshot({path:`qa/polish-shuffle-${test.info().project.name}.png`});
+  await expect.poll(async()=>(await events(page)).some(event=>event.duration===600)).toBe(true);
+  await expect(page.locator('.shuffle-overlay')).toHaveCount(0);
   await noOverflow(page);
 });
 
@@ -185,6 +213,11 @@ for(const doubleZero of [false,true])test(`拼点${doubleZero?'双零跳过比�
   await expect(banner).toHaveAttribute('aria-hidden','true');
   await expect(page.locator('[data-point-result] + .comparison')).toBeVisible();
   const bannerHeight=(await banner.boundingBox()).height;
+  const comparisonTop=(await page.locator('.comparison').boundingBox()).y;
+  await page.evaluate(()=>{
+    window.originalPointBoard=document.querySelector('.board');
+    window.originalComparison=document.querySelector('.comparison');
+  });
   await expect(page.locator('.value-winner')).toHaveCount(0);
   await expect(page.locator('.score')).toHaveText('0:0');
   await expect(page.locator('.log')).not.toContainText('获胜并获得');
@@ -204,6 +237,9 @@ for(const doubleZero of [false,true])test(`拼点${doubleZero?'双零跳过比�
   await expect(banner).toContainText(doubleZero?'比拼平手':'获胜');
   await expect(page.locator('[data-point-result] + .comparison')).toBeVisible();
   expect((await banner.boundingBox()).height).toBe(bannerHeight);
+  expect((await page.locator('.comparison').boundingBox()).y).toBe(comparisonTop);
+  expect(await page.evaluate(()=>window.originalPointBoard===document.querySelector('.board')&&window.originalComparison===document.querySelector('.comparison'))).toBe(true);
+  if(!doubleZero)await page.screenshot({path:`qa/polish-point-${test.info().project.name}.png`,fullPage:true});
   expect(await page.evaluate(()=>window.pointPulses)).toEqual([3]);
   const times=await page.evaluate(()=>window.feedbackTimes);
   const resultStart=doubleZero?2:4;

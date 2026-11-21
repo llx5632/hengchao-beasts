@@ -12,6 +12,7 @@ export const EFFECT_FILES = Object.freeze({
   'point-tie':'sfx-point-tie.wav',
   retreat:'sfx-retreat.wav', victory:'sfx-win.wav',
   defeat:'sfx-defeat.wav', draw:'sfx-draw.wav',
+  shuffle:'sfx-shuffle.wav',
 });
 
 const REVEAL_DURATION = 132; // The metal strike begins 132 ms into the WAV.
@@ -52,6 +53,8 @@ function interactionBuffer(context, {duration,from,to,texture}) {
 export function matchFeedback(before, after) {
   if (!before || !after || before.mode !== after.mode || before.phase === after.phase) return [];
   const cues = [];
+  if(after.mode==='point'&&before.phase==='select'&&after.phase==='lineup-reveal')cues.push({kind:'seal'});
+  if(after.mode==='point'&&before.phase==='lineup-reveal'&&after.phase==='between')cues.push({kind:'shuffle'});
   if (after.mode === 'battle' && !before.battle && after.battle) {
     cues.push({kind:'reveal'});
     if (after.transfers.at(-1)?.reason === '属性克制') cues.push({kind:'advantage',p:after.winner});
@@ -82,6 +85,12 @@ export function matchFeedback(before, after) {
     const winner = awards[0].to;
     cues.push({kind:'win',p:winner,audible:winner === 0&&!(after.mode==='point'&&after.round===5)});
   }
+  if(awards.length){
+    const cue=cues.at(-1);
+    cue.transfer=true;
+    cue.countsBefore=before.inventories.map(cards=>cards.length);
+    cue.countsAfter=after.inventories.map(cards=>cards.length);
+  }
   return cues;
 }
 
@@ -100,6 +109,43 @@ export function createFeedbackPlayer(root) {
   const audio = new Map(), clicks = new Map(), playing = new Set(), timers = new Set(), bars = new Map();
   const resultAnimations = new Set();
   const hiddenOutcomes = new Set();
+  const transientNodes = new Set();
+  const pendingCounts = new Map();
+
+  function settleCounts(cue){
+    cue.countsAfter?.forEach((count,p)=>{
+      const node=root.querySelector(`[data-card-count="${p}"]`);
+      if(!node)return;
+      node.textContent=count;
+      pendingCounts.delete(node);
+      if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
+        const animation=node.animate([{backgroundColor:'#dec27b',transform:'scale(1.18)'},{backgroundColor:'transparent',transform:'none'}],{duration:280});
+        resultAnimations.add(animation);
+      }
+    });
+  }
+
+  function flyTransfer(cue){
+    const origin=root.querySelector(`[data-feedback-side="${1-cue.p}"] img`);
+    const target=root.querySelectorAll('.scoreboard .player')[cue.p];
+    if(!origin||!target){settleCounts(cue);return;}
+    const from=origin.getBoundingClientRect(),to=target.getBoundingClientRect();
+    const token=document.createElement('img');
+    token.src=origin.src;
+    token.alt='';
+    token.className='transfer-token';
+    token.style.left=`${from.left+from.width/2-32}px`;
+    token.style.top=`${from.top+from.height/2-48}px`;
+    token.setAttribute('aria-hidden','true');
+    document.body.append(token);
+    transientNodes.add(token);
+    const animation=token.animate([
+      {transform:'translate(0,0) scale(1)',opacity:1},
+      {transform:`translate(${to.left+to.width/2-from.left-from.width/2}px,${to.top+to.height/2-from.top-from.height/2}px) scale(.35)`,opacity:.25},
+    ],{duration:560,easing:'ease-in-out'});
+    resultAnimations.add(animation);
+    animation.onfinish=()=>{token.remove();transientNodes.delete(token);settleCounts(cue);};
+  }
 
   function stopAudio() {
     for (const source of playing) source.stop();
@@ -246,6 +292,28 @@ export function createFeedbackPlayer(root) {
   }
 
   function draw(cue) {
+    if(cue.kind==='seal'){
+      root.querySelectorAll('.lineup-grid figure,.tutorial-five figure').forEach((card,index)=>{
+        const animation=card.animate([{transform:'translateY(0) scale(1)'},{transform:'translateY(7px) scale(.96)',offset:.45},{transform:'none'}],{duration:420,delay:index%5*25,easing:'ease-in-out'});
+        resultAnimations.add(animation);
+      });
+      return;
+    }
+    if(cue.kind==='shuffle'){
+      const overlay=document.createElement('div');
+      overlay.className='shuffle-overlay';
+      overlay.setAttribute('role','status');
+      overlay.innerHTML=`<div class="shuffle-packs">${[0,1].map(()=>`<div class="shuffle-pack">${Array.from({length:5},()=>'<span aria-hidden="true">✦</span>').join('')}</div>`).join('')}</div><p>双方分别洗牌</p>`;
+      document.body.append(overlay);
+      transientNodes.add(overlay);
+      overlay.querySelectorAll('.shuffle-pack span').forEach((card,index)=>{
+        const offset=(index%5-2)*18;
+        const animation=card.animate([{transform:`translateX(${offset}px) rotate(${offset/4}deg)`},{transform:`translateX(${-offset}px) rotate(${-offset/4}deg)`,offset:.45},{transform:'none'}],{duration:540,easing:'ease-in-out'});
+        resultAnimations.add(animation);
+      });
+      later(()=>{overlay.remove();transientNodes.delete(overlay);},600);
+      return;
+    }
     if(cue.kind==='retreat'){
       const side=root.querySelector(`[data-feedback-side="${cue.p}"]`);
       const card=side?.querySelector(FEEDBACK_CARD);
@@ -267,7 +335,7 @@ export function createFeedbackPlayer(root) {
         const animation=element.animate([{opacity:0,transform:'translateY(4px)'},{opacity:1,transform:'none'}],{duration:260,easing:'ease-out'});
         resultAnimations.add(animation);
       }
-      if(cue.kind==='victory')draw({kind:'win',p:0,audible:true});
+      if(cue.transfer)draw({...cue,kind:'win',terminal:false,audible:cue.kind==='victory'});
       return;
     }
     if(cue.kind==='point-result'){
@@ -299,6 +367,7 @@ export function createFeedbackPlayer(root) {
         ],380);
       },156);
     } else if (cue.kind === 'win') {
+      if(cue.transfer)flyTransfer(cue);
       const transfer = root.querySelector('[data-feedback-transfer]') ?? side;
       side?.animate([{boxShadow:'inset 0 0 0 2px #b68434'},{boxShadow:'inset 0 0 0 0 transparent'}],380);
       later(() => transfer?.animate([
@@ -354,6 +423,10 @@ export function createFeedbackPlayer(root) {
       timers.clear();
       for (const animation of resultAnimations) animation.cancel();
       resultAnimations.clear();
+      for(const node of transientNodes)node.remove();
+      transientNodes.clear();
+      for(const [node,count] of pendingCounts)node.textContent=count;
+      pendingCounts.clear();
       for (const [bar,finalWidth] of bars) bar.style.width = finalWidth;
       bars.clear();
       for(const element of hiddenOutcomes){element.style.visibility='';element.removeAttribute('aria-hidden');}
@@ -364,6 +437,10 @@ export function createFeedbackPlayer(root) {
       const animate = globalThis.Element?.prototype.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches;
       if (!animate && !context) return;
       if (document.hidden) return;
+      for(const cue of cues)cue.countsBefore?.forEach((count,p)=>{
+        const node=root.querySelector(`[data-card-count="${p}"]`);
+        if(node){node.textContent=count;pendingCounts.set(node,cue.countsAfter[p]);}
+      });
       if(cues.some(cue=>cue.terminal)&&cues.length>1){
         for(const element of root.querySelectorAll('[data-match-outcome]')){
           element.style.visibility='hidden';element.setAttribute('aria-hidden','true');
@@ -393,19 +470,21 @@ export function createFeedbackPlayer(root) {
           if (document.hidden) return;
           if(cue.terminal)for(const element of hiddenOutcomes){element.style.visibility='';element.removeAttribute('aria-hidden');hiddenOutcomes.delete(element);}
           if (animate && !step) draw(cue);
+          if(!animate&&cue.countsAfter)settleCounts(cue);
           if (!isEnabled() || cue.audible === false || cue.withPrevious) return;
           if(cue.kind==='point-result'){
             for(let index=0;index<3;index++)later(()=>{
               if(!document.hidden&&isEnabled())playBuffer(audio.get(cue.tie?'point-tie':`point-result-${index+1}`),0.38);
             },index*POINT_RESULT_PULSE_MS/3);
           }
+          else if(cue.kind==='seal')playTone('commit',INTERACTION_SOUNDS.commit,isEnabled,.24);
           else if(cue.kind.startsWith('point-'))playBuffer(audio.get(cue.kind),0.38);
           else if (step) playTone(cue.kind,step.tone,isEnabled,0.30);
           else playBuffer(audio.get(cue.kind),0.38);
         },start);
         if (!cue.withPrevious) {
           previousStart = start;
-          delay += cue.gap ?? step?.gap ?? {reveal:180,advantage:440,hit:230,block:230,heal:300,retreat:cue.escaped?800:420,win:0,victory:0,defeat:0,draw:0,'point-result':POINT_RESULT_PULSE_MS}[cue.kind];
+          delay += cue.gap ?? step?.gap ?? {reveal:180,advantage:440,hit:230,block:230,heal:300,retreat:cue.escaped?800:420,seal:0,shuffle:0,win:0,victory:0,defeat:0,draw:0,'point-result':POINT_RESULT_PULSE_MS}[cue.kind];
         }
       }
     },
