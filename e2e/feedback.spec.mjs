@@ -1,16 +1,21 @@
 import {test,expect,openSession,session,saved,createLocalMatch,dispatch,noOverflow,openAudioMenu} from './fixtures.mjs';
+import {EFFECT_FILES} from '../dist/feedback.js';
+import {beginTutorialLesson,tutorialAction} from '../dist/tutorial.js';
 
 async function setup(page, value) {
   value.effectsEnabled = true;
   value.autoAdvance = false;
   await page.addInitScript(()=>{
     window.feedbackEvents=[];
+    window.feedbackTimes=[];
     window.cardAnimations=[];
     window.revealSteps=[];
+    window.pointPulses=[];
     window.rpsRolls=[];
     const animate=Element.prototype.animate;
     Element.prototype.animate=function(frames,options){
       if(this.dataset.revealStep)window.revealSteps.push({part:this.dataset.revealStep,delay:options.delay});
+      if(this.hasAttribute('data-point-result'))window.pointPulses.push(options.iterations);
       if(this.classList.contains('rps-roller'))window.rpsRolls.push({
         duration:options.duration,
         choices:[...this.children].map(face=>face.lastChild.textContent),
@@ -35,6 +40,7 @@ async function setup(page, value) {
         const start=source.start.bind(source);
         source.start=(...args)=>{
           start(...args);
+          window.feedbackTimes.push(performance.now());
           window.feedbackEvents.push({
             duration:Math.round(source.buffer.duration*1000),
             animating:document.getAnimations().length>0,
@@ -51,7 +57,7 @@ async function setup(page, value) {
 const allEvents=page=>page.evaluate(()=>window.feedbackEvents);
 const events=async page=>(await allEvents(page)).filter(event=>![75,90,160].includes(event.duration));
 const cardAnimations=page=>page.evaluate(()=>window.cardAnimations);
-const ready=page=>expect.poll(()=>page.evaluate(()=>window.decodedEffects)).toBe(6);
+const ready=page=>expect.poll(()=>page.evaluate(()=>window.decodedEffects)).toBe(Object.keys(EFFECT_FILES).length);
 const choose=page=>page.locator('[data-action="attack"][data-skill="1"]');
 
 function selectedBattle(value, own, enemy, between=false) {
@@ -125,19 +131,67 @@ for(const doubleZero of [false,true])test(`拼点${doubleZero?'双零跳过比�
   await ready(page);
   await expect(page.locator('.revealed-points')).toHaveCount(0);
   await page.getByRole('button',{name:`选择点数 ${number}`,exact:true}).click();
+  const banner=page.locator('[data-point-result]');
+  await expect(banner).toBeVisible();
+  await expect(banner).toBeEmpty();
+  await expect(banner).toHaveAttribute('aria-hidden','true');
+  await expect(page.locator('[data-point-result] + .comparison')).toBeVisible();
+  const bannerHeight=(await banner.boundingBox()).height;
+  await expect(page.locator('.value-winner')).toHaveCount(0);
+  await expect(page.locator('.score')).toHaveText('0:0');
+  await expect(page.locator('.log')).not.toContainText('获胜并获得');
   const steps=await page.evaluate(()=>window.revealSteps);
   expect(steps).toContainEqual({part:'choices',delay:360});
   if(doubleZero){
     expect(steps.some(step=>step.part==='metric')).toBe(false);
-    expect(steps).toContainEqual({part:'values',delay:1360});
-    await expect.poll(async()=> (await events(page)).map(e=>e.duration)).toEqual([640,150,220]);
+    expect(steps.some(step=>step.part==='values')).toBe(false);
+    await expect.poll(async()=> (await events(page)).map(e=>e.duration)).toEqual([640,190,300,300,300]);
     expect((await saved(page)).match.transfers).toHaveLength(0);
   }else{
     expect(steps).toContainEqual({part:'metric',delay:1360});
     expect(steps).toContainEqual({part:'values',delay:2360});
-    await expect.poll(async()=> (await events(page)).map(e=>e.duration)).toEqual([640,150,200,240,1030]);
+    await expect.poll(async()=> (await events(page)).map(e=>e.duration),{timeout:7000}).toEqual([640,190,230,280,620,620,620,1030]);
     expect((await saved(page)).match.transfers.at(-1).to).toBe(0);
   }
+  await expect(banner).toContainText(doubleZero?'比拼平手':'获胜');
+  await expect(page.locator('[data-point-result] + .comparison')).toBeVisible();
+  expect((await banner.boundingBox()).height).toBe(bannerHeight);
+  expect(await page.evaluate(()=>window.pointPulses)).toEqual([3]);
+  const times=await page.evaluate(()=>window.feedbackTimes);
+  const resultStart=doubleZero?2:4;
+  for(let index=resultStart+1;index<resultStart+3;index++){
+    expect(times[index]-times[index-1]).toBeGreaterThan(250);
+    expect(times[index]-times[index-1]).toBeLessThan(650);
+  }
+  await page.reload();
+  expect(await events(page)).toEqual([]);
+  await noOverflow(page);
+});
+
+test('教程拼点减少动态效果时按拍发声，静音取消后续结果音',async({page})=>{
+  await page.emulateMedia({reducedMotion:'reduce'});
+  const value=session();
+  let tutorial=beginTutorialLesson(null,'point');
+  const act=action=>{tutorial=tutorialAction(tutorial,action);};
+  for(const card of tutorial.match.inventories[0])act({type:'choose',id:card.id});
+  for(const type of ['submit','ready','continue'])act({type});
+  value.tutorial=tutorial;
+  await setup(page,value);
+  await page.locator('#tutorial-heading').click();
+  await ready(page);
+  await page.locator('[data-action="tutorial-point"][data-value="0"]').click();
+  await expect.poll(async()=>(await events(page)).map(event=>event.duration)).toEqual([640,190,300,300,300]);
+  expect(await page.evaluate(()=>window.pointPulses)).toEqual([]);
+  await page.locator('[data-action="tutorial-next"]').click();
+  await page.locator('[data-action="tutorial-point"][data-value="3"]').click();
+  await page.waitForFunction(()=>window.feedbackEvents.some(event=>event.duration===620));
+  await expect(page.locator('[data-point-result]')).toContainText('你赢下本小局');
+  await openAudioMenu(page);
+  await page.locator('[data-action="effects-toggle"]').click();
+  const muted=await events(page);
+  expect(muted.filter(event=>event.duration===620).length).toBeLessThan(3);
+  await page.waitForTimeout(1000);
+  expect(await events(page)).toEqual(muted);
   await noOverflow(page);
 });
 

@@ -1,5 +1,5 @@
 import { loadSession, saveSession } from './storage.js';
-import { esc, btn, rpsFace } from './ui.js';
+import { esc, btn, rpsFace, pointResultBanner } from './ui.js';
 import { cardInfo, card, playedCard } from './card-view.js';
 import { renderCatalog } from './catalog-view.js';
 import { CARDS, CARD, TWIN_PARTNERS, BEATS, ELEMENTS, METRICS, POINT_NUMBERS, pointMetricIndex, skillText } from './data.js';
@@ -14,7 +14,7 @@ import { newTutorial, beginTutorialLesson, tutorialAction } from './tutorial.js'
 import { renderTutorial } from './tutorial-ui.js';
 import { EASTER_EGG_MESSAGES, FIREWORKS_DURATION, unlockEasterEgg, nextEasterEgg, fireworksMarkup } from './easter-egg.js';
 import { createMusicPlayer } from './music.js';
-import { createFeedbackPlayer, matchFeedback } from './feedback.js';
+import { createFeedbackPlayer, matchFeedback, pointResultDelay, POINT_RESULT_PULSE_MS } from './feedback.js';
 
 const app=document.querySelector('#app');
 const fresh=freshSession;
@@ -28,6 +28,7 @@ let diceSaveBlocked=false;
 let pendingDiceFeedback=[];
 let audioMenuOpen=false;
 let pointCountdown=null, countdownTimer=null;
+let pointPresentation=null;
 let storageFailed=false,readingOpen={log:false,lineup:false};
 let eggTimer=null,eggAdvanceAt=0;
 if(store.tutorial.status==='active')route='tutorial';
@@ -62,11 +63,13 @@ function selectionFeedback(id, selected, tutorial=false, restoreFocus=false){
   interactionFeedback(selected?'select':'deselect',card??document.querySelector('.draft-panel'));
 }
 function sendTutorial(action){
+  if(pointPresentation?.match===store.tutorial.match)return;
   try{
     const before=store.tutorial;
     const restoreFocus=action.type==='choose'&&document.activeElement?.dataset.instance===action.id;
     store.tutorial=tutorialAction(store.tutorial,action);
-    const cues=before.lesson===store.tutorial.lesson?matchFeedback(before.match,store.tutorial.match):[];
+    const cues=before.lesson===store.tutorial.lesson
+      ? presentPointResult(before.match,store.tutorial.match,matchFeedback(before.match,store.tutorial.match),'tutorial'):[];
     const showResult=hasRevealSequence(cues);
     const showCards=!showResult&&cues.length>0&&store.tutorial.match?.mode==='battle';
     route=store.tutorial.status==='completed'?'home':'tutorial';save();render({cues,showCards});
@@ -289,12 +292,12 @@ function privateTurn(m,p){
   }
   return '';
 }
-function comparisonView(comparison){
+function comparisonView(comparison,pending=false){
   if(!comparison)return '';
   const points=`<p class="revealed-points" data-reveal-step="choices">${comparison.numbers.map((value,p)=>`<span>${name(p)} 出点 <strong>${value}</strong></span>`).join('')}</p>`;
-  if(comparison.kind==='double-zero')return `<div class="comparison">${points}<h3 data-reveal-step="values">双方均出 0 · 本次平手</h3><p>本次不比较属性，双方当前卡牌已公开；不推进小局、不交换卡牌。</p>${metricStrip()}</div>`;
+  if(comparison.kind==='double-zero')return `<div class="comparison">${points}${pending?'':'<p>本次不比较属性，双方当前卡牌已公开。</p>'}${metricStrip()}</div>`;
   const metric=METRICS[comparison.metric],tie=comparison.values[0]===comparison.values[1],winner=comparison.values[0]>comparison.values[1]?0:1;
-  return `<div class="comparison">${points}${comparison.metric!==pointMetricIndex(comparison.sum)?'<p class="legacy-comparison">此为调整前的已结算结果；下一次比拼使用当前编号规则。</p>':''}<h3 data-reveal-step="metric">本次比拼 · ${metric.name}</h3><div class="comparison-values" data-reveal-step="values">${comparison.values.map((value,p)=>`<div class="${!tie&&winner===p?'value-winner':''}"><small>${name(p)}</small><strong>${value}<span>${metric.unit}</span></strong><b>${tie?'同分':winner===p?'较大 · 获胜':'失利'}</b></div>`).join('')}</div>${metricStrip(comparison.metric)}</div>`;
+  return `<div class="comparison">${points}${comparison.metric!==pointMetricIndex(comparison.sum)?'<p class="legacy-comparison">此为调整前的已结算结果；下一次比拼使用当前编号规则。</p>':''}<h3 data-reveal-step="metric">本次比拼 · ${metric.name}</h3><div class="comparison-values" data-reveal-step="values">${comparison.values.map((value,p)=>`<div class="${!pending&&!tie&&winner===p?'value-winner':''}"><small>${name(p)}</small><strong>${value}<span>${metric.unit}</span></strong>${pending?'':`<b>${tie?'同分':winner===p?'较大 · 获胜':'失利'}</b>`}</div>`).join('')}</div>${metricStrip(comparison.metric)}</div>`;
 }
 function sharedTurn(m){
   if(m.phase==='lineup-reveal')return lineupPreview(m);
@@ -302,7 +305,10 @@ function sharedTurn(m){
   if(m.phase==='rps-result')return `${battleBoard(m)}<section class="panel center"><h3 data-reveal-step="outcome">猜拳揭晓 · ${name(m.battle.actor)} 获胜</h3>${rpsResult(m)}${btn(m.battle.actor===0&&m.controls[0]==='human'?'选择本次行动':'进入胜者行动','advance')}</section>`;
   if(m.phase==='rps-tie')return `${battleBoard(m)}<section class="panel center"><h3 data-reveal-step="outcome">猜拳平手 · 重新出拳</h3>${rpsResult(m)}${btn('重新猜拳','advance')}</section>`;
   if(m.phase==='battle-turn')return `${battleBoard(m)}<section class="panel center"><h3>${name(m.battle.last.player)} 的行动结束</h3>${rpsResult(m)}${actionFeedback(m)}${btn('进入下一轮猜拳','advance')}</section>`;
-  if(m.phase==='point-tie')return `${pointBoard(m,0,true)}<section class="panel center"><h3 data-reveal-step="values">比拼平手 · 双方卡牌已公开</h3>${comparisonView(m.point.comparisons.at(-1))}<p>使用当前两张卡重新选点，直到分出胜负。</p>${btn('使用原卡重新选点','advance')}</section>`;
+  if(m.phase==='point-tie'){
+    const pending=pointPresentation?.match===m;
+    return `${pointBoard(m,0,true)}<section class="panel center">${pointResultBanner(pending?'':'比拼平手 · 双方卡牌已公开')}${comparisonView(m.point.comparisons.at(-1),pending)}${pending?'':`<p>使用当前两张卡重新选点，直到分出胜负。</p>${btn('使用原卡重新选点','advance')}`}</section>`;
+  }
   if(m.phase==='round-result')return pointRoundResult(m);
   if(m.phase==='dice-choice')return diceTurn(m);
   if(m.phase==='battle-action')return `${battleBoard(m)}<section class="panel center"><h3>${name(m.battle.actor)} 正在选择行动</h3>${rpsResult(m)}<p>本次只有猜拳胜者执行一次进攻或撤退。</p></section>`;
@@ -311,13 +317,16 @@ function sharedTurn(m){
 }
 function pointRoundResult(m){
   const r=m.rounds.at(-1);
+  if(pointPresentation?.match===m){
+    return `${pointBoard(m,0,true)}<section class="panel center">${pointResultBanner()}${comparisonView(r.comparison,true)}</section>`;
+  }
   const canChoose=m.controls[0]==='human'&&(m.phase==='round-result'||m.decisions[0]===null);
   const penalty=Math.ceil((5-m.round)/2);
   const controls=m.round===5?btn('查看整场结果','advance'):canChoose?`<div class="toolbar" style="justify-content:center">
     ${btn('继续下一小局<span data-next-round-seconds></span>','decision','','data-value="continue"')}
     ${btn(`投降 · 随机失去 ${penalty} 张`,'decision','danger','data-value="surrender"')}
   </div>`: '<p class="subtle">等待双方确认下一小局…</p>';
-  return `${pointBoard(m,0,true)}<section class="panel center"><div class="eyebrow">第 ${m.round} 小局结束</div><h3 data-feedback-transfer data-reveal-step="values">${r.kind==='same'?'同一种异兽 · 直接跳过':`${name(r.winner)} 获胜`}</h3>${comparisonView(r.comparison)}<p>${r.kind==='same'?'双方各自保留卡牌，本局已计入进度。':'胜者保留自己的卡，并获得对方本次出场卡。两张出场卡均不再参与后续小局。'}</p>${controls}${track(m)}</section>`;
+  return `${pointBoard(m,0,true)}<section class="panel center">${pointResultBanner(r.kind==='same'?'同一种异兽 · 直接跳过':`${name(r.winner)} 获胜`)}${comparisonView(r.comparison)}<p>${r.kind==='same'?'双方各自保留卡牌，本局已计入进度。':'胜者保留自己的卡，并获得对方本次出场卡。两张出场卡均不再参与后续小局。'}</p>${controls}${track(m)}</section>`;
 }
 function finalView(m){
   const transfers=m.transfers.map(t=>`${name(t.from)} → ${name(t.to)}：${CARD[t.cardId].name}（${t.reason}）`);
@@ -326,6 +335,7 @@ function finalView(m){
 function flowOptions(){return {autoAdvance:store.autoAdvance,paused,dialogOpen:!!document.querySelector('dialog[open], .log[open], .lineup-reference[open]'),hidden:document.hidden};}
 function flowControls(m){
   if(m.status!=='active')return '';
+  if(pointPresentation?.match===m)return '';
   const status=flowStatus(m);
   return `<div class="flow-controls"><div class="toolbar">${btn('自动推进','auto-toggle',`ghost small ${store.autoAdvance?'enabled':''}`,`role="switch" aria-checked="${store.autoAdvance}"`)}${btn(paused?'继续自动处理':'暂停自动处理','pause','ghost small',`aria-pressed="${paused}"`)}</div><small role="status">${status}</small></div>`;
 }
@@ -336,31 +346,51 @@ function flowStatus(m){
 function matchView(){
   const m=store.match;
   if(!m){route='home';return home();}
+  const publicMatch=pointPresentation?.match===m?pointPresentation.before:m;
   const myTurn=expectedPlayers(m).includes(0)&&m.controls[0]==='human';
   const battleView=m.mode==='battle'&&m.battle;
   const tools=(canLeaveSelection(m)?btn('返回对局大厅','home','ghost small'):'')+(battleView?btn(store.battleCompact?'切换完整视图':'切换紧凑视图','battle-layout','ghost small',`aria-pressed="${store.battleCompact}"`):'')+(m.status==='active'?btn(m.controls[0]==='ai'?'恢复自己操作':'暂离 / AI代出','control','ghost small')+(battleView?btn('投降','battle-surrender','danger small'):''):'');
   const content=m.status==='finished'?finalView(m):pointRoundPending(m)?pointRoundResult(m):myTurn?privateTurn(m,0):sharedTurn(m);
-  return `<main class="wrap ${battleView?'battle-match':''} ${battleView&&store.battleCompact?'compact':''}"><div class="match-head"><div><div class="eyebrow">${m.mode==='battle'?'相性决斗 / BATTLE':'衡量试炼 / POINT DUEL'}</div><h2>${m.status==='finished'?'对局结果':m.mode==='battle'?'相性决斗':m.phase==='lineup-reveal'?'衡量试炼 · 阵容展示':`衡量试炼 · ${Math.min(m.phase==='round-result'?m.round:m.round+1,5)} / 5`}</h2></div><div class="match-tools">${tools}</div></div>${scoreboard(m)}${flowControls(m)}${battleView&&store.battleCompact&&m.status==='active'?`<div class="combat-layout">${content}</div>`:content}${lineupReference(m)}<details class="log" ${readingOpen.log?'open':''}><summary>查看已公开的对局记录（${m.history.length}）</summary><ol>${m.history.map(t=>`<li>${esc(t)}</li>`).join('')}</ol></details></main>`;
+  return `<main class="wrap ${battleView?'battle-match':''} ${battleView&&store.battleCompact?'compact':''}"><div class="match-head"><div><div class="eyebrow">${m.mode==='battle'?'相性决斗 / BATTLE':'衡量试炼 / POINT DUEL'}</div><h2>${m.status==='finished'?'对局结果':m.mode==='battle'?'相性决斗':m.phase==='lineup-reveal'?'衡量试炼 · 阵容展示':`衡量试炼 · ${Math.min(m.phase==='round-result'?m.round:m.round+1,5)} / 5`}</h2></div><div class="match-tools">${tools}</div></div>${scoreboard(publicMatch)}${flowControls(m)}${battleView&&store.battleCompact&&m.status==='active'?`<div class="combat-layout">${content}</div>`:content}${lineupReference(publicMatch)}<details class="log" ${readingOpen.log?'open':''}><summary>查看已公开的对局记录（${publicMatch.history.length}）</summary><ol>${publicMatch.history.map(t=>`<li>${esc(t)}</li>`).join('')}</ol></details></main>`;
 }
 const hasRevealSequence=cues=>cues.some(({kind})=>kind==='rps-hands'||kind==='point-numbers');
+function presentPointResult(before,match,cues,destination){
+  const delay=pointResultDelay(cues);
+  if(delay===null||typeof document.createElement!=='function')return cues;
+  const index=cues.findIndex(({kind})=>kind==='point-result');
+  const pending={before,match};
+  pointPresentation=pending;
+  setTimeout(()=>{
+    if(pointPresentation!==pending)return;
+    pointPresentation=null;
+    if(route!==destination||(destination==='tutorial'?store.tutorial.match:store.match)!==match)return;
+    render({cues:cues.slice(index)});
+    if(destination==='match')setTimeout(()=>{
+      if(store.match===match)maybeOpenEasterEgg();
+    },POINT_RESULT_PULSE_MS);
+  },delay);
+  return cues.slice(0,index);
+}
 function render({resetReading=false,cues=[],showCards=false}={}){
   feedback.clear();
   syncMusic();
   if(resetReading)readingOpen={log:false,lineup:false};
   else for(const [key,selector] of [['log','.log'],['lineup','.lineup-reference']]){const node=document.querySelector(selector);if(node)readingOpen[key]=node.open;}
-  app.innerHTML=`<div class="shell">${route==='tutorial'?'':header()}${storageFailed?`<div class="save-warning" role="alert"><span>存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。</span>${btn('重试保存','retry-save','ghost small')}</div>`:''}${diceSaveBlocked?'<main class="wrap panel"><h2>骰点正在等待存档写入</h2><p>请重试保存后继续，当前结果会保留。</p></main>':route==='tutorial'?renderTutorial(store.tutorial,playedCard,audioControls()):route==='match'?matchView():route==='home'?home():catalog()}${footer()}</div>`;scheduleAI();
-  if(hasRevealSequence(cues)&&matchMedia('(max-width: 760px)').matches){
-    document.querySelector('[data-reveal-step="choices"]')?.scrollIntoView({block:'center',behavior:'instant'});
+  app.innerHTML=`<div class="shell">${route==='tutorial'?'':header()}${storageFailed?`<div class="save-warning" role="alert"><span>存档未能写入浏览器，当前修改仅保留在本页，刷新可能丢失。</span>${btn('重试保存','retry-save','ghost small')}</div>`:''}${diceSaveBlocked?'<main class="wrap panel"><h2>骰点正在等待存档写入</h2><p>请重试保存后继续，当前结果会保留。</p></main>':route==='tutorial'?renderTutorial(store.tutorial,playedCard,audioControls(),pointPresentation?.match===store.tutorial.match):route==='match'?matchView():route==='home'?home():catalog()}${footer()}</div>`;scheduleAI();
+  if(cues.length&&matchMedia('(max-width: 760px)').matches){
+    if(hasRevealSequence(cues))document.querySelector('[data-reveal-step="choices"]')?.scrollIntoView({block:'center',behavior:'instant'});
+    else if(cues.some(({kind})=>kind==='point-result'))document.querySelector('[data-point-result]')?.scrollIntoView({block:'nearest',behavior:'instant'});
   }
   if(showCards)document.querySelector('[data-tutorial-combat]')?.scrollIntoView({block:'center',behavior:'instant'});
   if(!diceSaveBlocked)feedback.show(cues,()=>store.effectsEnabled);
 }
 function send(action){
+  if(pointPresentation?.match===store.match)return;
   if(diceSaveBlocked)return toast('请先重试保存，再继续当前骰点。');
   try{
     const before=store.match;
     store.match=dispatch(before,action);
-    const cues=matchFeedback(before,store.match);
+    const cues=presentPointResult(before,store.match,matchFeedback(before,store.match),'match');
     store.players.forEach((p,i)=>p.cards=structuredClone(store.match.inventories[i]));
     draft=selectionDraft(store.match);
     if(store.match.phase!=='select'||store.match.selections[0]!==null){
@@ -380,7 +410,7 @@ function send(action){
       if(store.match.phase==='lineup-reveal')window.scrollTo(0,0);
       else if(!hasRevealSequence(cues)&&store.match.mode==='battle'&&store.battleCompact)document.querySelector('.combat-layout')?.scrollIntoView({block:'start'});
     }
-    maybeOpenEasterEgg();
+    if(!pointPresentation)maybeOpenEasterEgg();
   }catch(error){toast(error.message);}
 }
 function scheduleAI(){
@@ -392,6 +422,7 @@ function scheduleAI(){
   if(diceSaveBlocked)return;
   const m=store.match;
   if(route!=='match')return;
+  if(pointPresentation?.match===m)return;
   const status=document.querySelector('.flow-controls [role="status"]');if(status&&m?.status==='active')status.textContent=flowStatus(m);
   const step=scheduledStep(m,flowOptions());
   const count=document.querySelector('[data-next-round-seconds]');

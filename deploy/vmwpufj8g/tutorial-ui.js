@@ -1,17 +1,18 @@
-import {rpsFace} from './ui.js';
+import {rpsFace,pointResultBanner} from './ui.js';
 import { CARD, BEATS, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
 import { tutorialGuidance, tutorialPointTarget } from './tutorial.js';
 
 const button=(label,type,attrs='',secondary=false)=>`<button class="btn ${secondary?'ghost':''}" data-action="tutorial-${type}" ${attrs}>${label}</button>`;
 const hands={rock:'石头',paper:'布',scissors:'剪刀'};
-function pointExplanation(comparison,preview=false) {
+function pointExplanation(comparison,preview=false,pending=false) {
   if(!comparison)return '';
   const {numbers,sum,metric,values}=comparison;
-  const relation=values?values[0]===values[1]?'＝':values[0]>values[1]?'＞':'＜':null;
-  return `<div class="tutorial-point-formula" role="status"><small data-reveal-step="choices">${preview?'教学预演 · AI出点固定':'本次出点已揭晓'} · 你出${numbers[0]}，AI出${numbers[1]}</small><strong data-reveal-step="${metric===null?'values':'metric'}">${numbers[0]}＋${numbers[1]}＝${sum}<span aria-hidden="true"> → </span>${metric===null?'双零亮牌，用原卡重比':`第${metric+1}项 · ${METRICS[metric].name}`}</strong>${sum>METRICS.length?`<span>总和${sum}超过6，从第1项重新数，对应第${metric+1}项。</span>`:''}${values?`<span data-reveal-step="values">你 ${values[0]}${METRICS[metric].unit} ${relation} AI ${values[1]}${METRICS[metric].unit}${preview?'':values[0]===values[1]?' · 数值相同，亮牌重比':values[0]>values[1]?' · 你赢下本小局':' · AI赢下本小局'}</span>`:''}${metric===null?'<span>总和0不对应比较项目，不消耗当前卡，也不转移谱印。</span>':''}</div>`;
+  const relation=pending?null:values?values[0]===values[1]?'＝':values[0]>values[1]?'＞':'＜':null;
+  const metricLabel=metric===null?(pending?'':'双零亮牌，用原卡重比'):`第${metric+1}项 · ${METRICS[metric].name}`;
+  return `<div class="tutorial-point-formula" role="status"><small data-reveal-step="choices">${preview?'教学预演 · AI出点固定':'本次出点已揭晓'} · 你出${numbers[0]}，AI出${numbers[1]}</small><strong data-reveal-step="${metric===null?'values':'metric'}">${numbers[0]}＋${numbers[1]}＝${sum}${metricLabel?`<span aria-hidden="true"> → </span>${metricLabel}`:''}</strong>${sum>METRICS.length?`<span>总和${sum}超过6，从第1项重新数，对应第${metric+1}项。</span>`:''}${values?`<span data-reveal-step="values">你 ${values[0]}${METRICS[metric].unit} ${relation??'·'} AI ${values[1]}${METRICS[metric].unit}${preview||pending?'':values[0]===values[1]?' · 数值相同，亮牌重比':values[0]>values[1]?' · 你赢下本小局':' · AI赢下本小局'}</span>`:''}${metric===null&&!pending?'<span>总和0不对应比较项目，不消耗当前卡，也不转移谱印。</span>':''}</div>`;
 }
-export function renderTutorial(state,face,audioControls='') {
-  const m=state.match,guide=tutorialGuidance(state),lesson=['attribute','battle','point'].indexOf(state.lesson);
+export function renderTutorial(state,face,audioControls='',pending=false) {
+  const m=state.match,guide=pending?{title:'观察本次比拼',text:'依次查看双方点数、比较项目和数值。'}:tutorialGuidance(state),lesson=['attribute','battle','point'].indexOf(state.lesson);
   const result=['point-tie','round-result'].includes(m.phase)?m.point?.comparisons.at(-1):null;
   const target=m.phase==='point'?tutorialPointTarget(state):null;
   const preview=target===null?null:{numbers:[target,target===0?0:1],sum:target===0?0:target+1,metric:pointMetricIndex(target===0?0:target+1)};
@@ -59,15 +60,23 @@ export function renderTutorial(state,face,audioControls='') {
     actions=button('继续本小局','continue');
   }else{
     content=pointBoard();
+    const round=m.phase==='round-result'?m.rounds.at(-1):null;
+    if(round||m.phase==='point-tie'){
+      const label=round?(round.kind==='same'?'同卡跳过':round.winner===0?'你赢下本小局':'教学AI赢下本小局'):'本次平手，亮牌重比';
+      content+=pointResultBanner(pending?'':label)+pointExplanation(result,false,pending);
+    }
     if(m.point?.revealed||result?.values)content+=`<div class="tutorial-table-scroll"><table class="tutorial-comparison"><caption>当前卡牌的六项静态数值</caption><thead><tr><th>项目</th>${m.point.cards.map(c=>`<th>${CARD[c.cardId].name}</th>`).join('')}</tr></thead><tbody>${METRICS.map((metric,i)=>`<tr class="${i===focusMetric?'tutorial-metric-focus':''}"><th>${metric.name}</th>${m.point.cards.map(c=>`<td>${metric.read(CARD[c.cardId])}${metric.unit}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-    content+=metrics()+pointExplanation(preview??result,!!preview);
+    content+=metrics()+pointExplanation(preview,!!preview,pending);
     if(m.phase==='point'){
       const target=tutorialPointTarget(state);
       content+=`<div class="options points tutorial-points" aria-label="选择教程点数">${POINT_NUMBERS.map(n=>button(String(n),'point',`data-value="${n}" ${target!==null&&target!==n?'disabled':''}`)).join('')}</div>`;
-    }else if(m.phase==='point-tie')actions=button('亮牌后重新选点','next');
-    else if(m.phase==='round-result'){
-      const r=m.rounds.at(-1),comparison=r.comparison;
-      content+=`<div class="tutorial-outcome" role="status"><strong data-feedback-transfer data-reveal-step="values">${r.kind==='same'?'同卡跳过':r.winner===0?'你赢下本小局':'教学AI赢下本小局'}</strong>${comparison?`<span>${METRICS[comparison.metric].name}：${comparison.values[0]} 对 ${comparison.values[1]}</span><span>本次出点：你 ${comparison.numbers[0]} · AI ${comparison.numbers[1]}</span>`:''}<span>已完成 ${m.round} / 5 小局 · 你的胜场 ${m.scores[0]}，AI ${m.scores[1]}</span></div>`;
+    }else if(pending){
+      actions='';
+    }else if(m.phase==='point-tie'){
+      actions=button('亮牌后重新选点','next');
+    }
+    else if(round){
+      content+=`<p class="tutorial-outcome">已完成 ${m.round} / 5 小局 · 你的胜场 ${m.scores[0]}，AI ${m.scores[1]}</p>`;
       if(state.pointExercise)content+=`<div class="tutorial-free-practice">${button(m.round===5?'查看五小局结果':'继续自由练习剩余小局','next','',true)}</div>`;
       actions=state.pointExercise?button('教学结束','complete')+button('重试自主练习','practice','',true):button('现在自己判断一次','practice');
     }else actions=state.practiceDone?button('教学结束','complete'):button('现在自己判断一次','practice');

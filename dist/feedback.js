@@ -3,6 +3,13 @@ import { RPS_CHOICES } from './ui.js';
 export const EFFECT_FILES = Object.freeze({
   reveal:'sfx-reveal.wav', advantage:'sfx-advantage.wav', hit:'sfx-hit.wav',
   block:'sfx-block.wav', heal:'sfx-heal.wav', win:'sfx-win.wav',
+  'point-numbers':'sfx-point-numbers.wav',
+  'point-metric':'sfx-point-metric.wav',
+  'point-values':'sfx-point-values.wav',
+  'point-result-1':'sfx-point-result-1.wav',
+  'point-result-2':'sfx-point-result-2.wav',
+  'point-result-3':'sfx-point-result-3.wav',
+  'point-tie':'sfx-point-tie.wav',
 });
 
 const REVEAL_DURATION = 132; // The metal strike begins 132 ms into the WAV.
@@ -18,10 +25,9 @@ const RESULT_STEPS = {
   'rps-hands':{part:'choices',gap:200,tone:{duration:0.135,from:520,to:430,texture:0.60}},
   'rps-win':{part:'outcome',gap:0,tone:{duration:0.25,from:625,to:780,texture:0.08}},
   'rps-tie':{part:'outcome',gap:0,tone:{duration:0.22,from:510,to:490,texture:0.12}},
-  'point-numbers':{part:'choices',gap:1000,tone:{duration:0.15,from:490,to:535,texture:0.40}},
-  'point-metric':{part:'metric',gap:1000,tone:{duration:0.20,from:540,to:630,texture:0.10}},
-  'point-values':{part:'values',gap:440,tone:{duration:0.24,from:590,to:735,texture:0.07}},
-  'point-tie':{part:'values',gap:440,tone:{duration:0.22,from:510,to:490,texture:0.12}},
+  'point-numbers':{part:'choices',gap:1000},
+  'point-metric':{part:'metric',gap:1000},
+  'point-values':{part:'values',gap:1000},
 };
 
 function interactionBuffer(context, {duration,from,to,texture}) {
@@ -62,8 +68,8 @@ export function matchFeedback(before, after) {
     if (comparison) {
       cues.push({kind:'point-numbers'});
       if (comparison.values) cues.push({kind:'point-metric'});
-      cues.push(after.phase==='point-tie'
-        ? {kind:'point-tie'} : {kind:'point-values',p:after.rounds.at(-1).winner});
+      if (comparison.values) cues.push({kind:'point-values'});
+      cues.push({kind:'point-result',tie:after.phase==='point-tie'});
     }
   }
   const awards = after.transfers.slice(before.transfers.length);
@@ -73,6 +79,16 @@ export function matchFeedback(before, after) {
   }
   return cues;
 }
+
+export function pointResultDelay(cues){
+  let delay=0;
+  for(const cue of cues){
+    if(cue.kind==='point-result')return delay;
+    delay+=cue.gap??RESULT_STEPS[cue.kind]?.gap??0;
+  }
+  return null;
+}
+export const POINT_RESULT_PULSE_MS=1200;
 
 export function createFeedbackPlayer(root) {
   let context, revision=0;
@@ -224,6 +240,18 @@ export function createFeedbackPlayer(root) {
   }
 
   function draw(cue) {
+    if(cue.kind==='point-result'){
+      const animation=root.querySelector('[data-point-result]')?.animate([
+        {backgroundColor:'#e8dfc9',boxShadow:'0 0 0 0 transparent'},
+        {backgroundColor:'#f5e2a7',boxShadow:'0 0 0 2px #ac873c',offset:.45},
+        {backgroundColor:'#e8dfc9',boxShadow:'0 0 0 0 transparent'},
+      ],{duration:POINT_RESULT_PULSE_MS/3,iterations:3,easing:'ease-in-out'});
+      if(animation){
+        resultAnimations.add(animation);
+        animation.onfinish=()=>resultAnimations.delete(animation);
+      }
+      return;
+    }
     const side = root.querySelector(`[data-feedback-side="${cue.p}"]`);
     const card = side?.querySelector(FEEDBACK_CARD);
     const result = root.querySelector('[data-feedback-result]');
@@ -327,12 +355,18 @@ export function createFeedbackPlayer(root) {
           if (document.hidden) return;
           if (animate && !step) draw(cue);
           if (!isEnabled() || cue.audible === false || cue.withPrevious) return;
-          if (step) playTone(cue.kind,step.tone,isEnabled,0.30);
+          if(cue.kind==='point-result'){
+            for(let index=0;index<3;index++)later(()=>{
+              if(!document.hidden&&isEnabled())playBuffer(audio.get(cue.tie?'point-tie':`point-result-${index+1}`),0.38);
+            },index*POINT_RESULT_PULSE_MS/3);
+          }
+          else if(cue.kind.startsWith('point-'))playBuffer(audio.get(cue.kind),0.38);
+          else if (step) playTone(cue.kind,step.tone,isEnabled,0.30);
           else playBuffer(audio.get(cue.kind),0.38);
         },start);
         if (!cue.withPrevious) {
           previousStart = start;
-          delay += cue.gap ?? step?.gap ?? {reveal:180,advantage:440,hit:175,block:175,heal:250,win:0}[cue.kind];
+          delay += cue.gap ?? step?.gap ?? {reveal:180,advantage:440,hit:175,block:175,heal:250,win:0,'point-result':POINT_RESULT_PULSE_MS}[cue.kind];
         }
       }
     },

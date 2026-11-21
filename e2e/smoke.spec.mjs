@@ -134,6 +134,7 @@ test('从大厅完成战斗，实际赢卡且刷新不重复转卡',async({page}
 });
 
 test('从选卡完成五小局拼点，实例守恒且结果可刷新',async({page})=>{
+  test.setTimeout(60000);
   const value=session();value.autoAdvance=false;
   await openSession(page,value);
   await page.getByRole('button',{name:'进入拼点　↗',exact:true}).click();
@@ -148,7 +149,7 @@ test('从选卡完成五小局拼点，实例守恒且结果可刷新',async({pa
     await page.getByRole('button',{name:'选择点数 6',exact:true}).click();
     const next=page.getByRole('button',{name:round===4?'查看整场结果':'继续下一小局',exact:true});
     await expect(page.locator('.comparison')).toBeVisible();
-    await next.click();
+    await next.click({timeout:9000});
   }
   await expect(page.locator('.result-title')).toBeVisible();
   const before=await saved(page);
