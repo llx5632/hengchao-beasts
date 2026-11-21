@@ -1,4 +1,5 @@
 import { RPS_CHOICES } from './ui.js';
+import { statusFeedback } from './status-feedback.js';
 
 export const EFFECT_FILES = Object.freeze({
   reveal:'sfx-reveal.wav', advantage:'sfx-advantage.wav', hit:'sfx-hit.wav',
@@ -13,6 +14,9 @@ export const EFFECT_FILES = Object.freeze({
   retreat:'sfx-retreat.wav', victory:'sfx-win.wav',
   defeat:'sfx-defeat.wav', draw:'sfx-draw.wav',
   shuffle:'sfx-shuffle.wav',
+  'status-guard':'sfx-status-guard.wav',
+  'status-charge':'sfx-status-charge.wav',
+  'status-harm':'sfx-status-harm.wav',
 });
 
 const REVEAL_DURATION = 132; // The metal strike begins 132 ms into the WAV.
@@ -62,6 +66,9 @@ export function matchFeedback(before, after) {
   if (after.mode === 'battle' && ['rps-result','rps-tie'].includes(after.phase)) {
     cues.push({kind:'rps-hands'}, after.phase==='rps-tie'
       ? {kind:'rps-tie'} : {kind:'rps-win',p:after.battle.actor});
+    const statuses=statusFeedback(before.battle,after.battle);
+    if(statuses.length)cues.at(-1).gap=300;
+    cues.push(...statuses);
   }
   if (after.mode === 'battle' && ['battle-turn','finished'].includes(after.phase)) {
     cues.push(...(after.battle?.last?.feedback ?? []));
@@ -292,6 +299,50 @@ export function createFeedbackPlayer(root) {
   }
 
   function draw(cue) {
+    if(cue.kind==='status'){
+      const side=root.querySelector(`[data-feedback-side="${cue.p}"]`);
+      if(!side)return;
+      const family=cue.changes[0].mode==='clear'?'guard':cue.changes[0].family;
+      const color={guard:'#6c9eae',charge:'#ba9349',harm:'#a96d55'}[family];
+      const card=side.querySelector(FEEDBACK_CARD);
+      const notice=document.createElement('div');
+      notice.className=`status-feedback status-${family}`;
+      notice.setAttribute('role','status');
+      for(const change of cue.changes){
+        const line=document.createElement('span');
+        line.className=`status-line status-line-${change.mode==='clear'?'guard':change.family}`;
+        line.dataset.status=change.key;
+        line.dataset.mode=change.mode;
+        line.textContent=change.label;
+        notice.append(line);
+      }
+      side.append(notice);
+      transientNodes.add(notice);
+      const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if(!reduced){
+        const animation=notice.animate([{opacity:0,transform:'translateY(5px)'},{opacity:1,transform:'none',offset:.2},{opacity:1,offset:.85},{opacity:0}],{duration:1500,easing:'ease-out'});
+        resultAnimations.add(animation);
+        if(card){
+          const glow=card.animate([{boxShadow:`0 0 0 2px ${color},0 0 18px ${color}88`},{boxShadow:'0 0 0 0 transparent'}],{duration:680,easing:'ease-out'});
+          resultAnimations.add(glow);
+        }
+        if(cue.changes.some(change=>['trigger','consume'].includes(change.mode))){
+          for(let index=0;index<4;index++){
+            const particle=document.createElement('span');
+            particle.className='status-particle';
+            particle.style.backgroundColor=color;
+            particle.setAttribute('aria-hidden','true');
+            side.append(particle);
+            transientNodes.add(particle);
+            const burst=particle.animate([{transform:'translate(0,0) scale(1)',opacity:.9},{transform:`translate(${(index-1.5)*22}px,${-18-index%2*18}px) scale(0)`,opacity:0}],{duration:540,easing:'ease-out'});
+            resultAnimations.add(burst);
+            burst.onfinish=()=>{particle.remove();transientNodes.delete(particle);};
+          }
+        }
+      }
+      later(()=>{notice.remove();transientNodes.delete(notice);},1600);
+      return;
+    }
     if(cue.kind==='seal'){
       root.querySelectorAll('.lineup-grid figure,.tutorial-five figure').forEach((card,index)=>{
         const animation=card.animate([{transform:'translateY(0) scale(1)'},{transform:'translateY(7px) scale(.96)',offset:.45},{transform:'none'}],{duration:420,delay:index%5*25,easing:'ease-in-out'});
@@ -434,8 +485,8 @@ export function createFeedbackPlayer(root) {
     },
     show(cues, isEnabled) {
       if (!cues.length) return;
+      if(typeof root.querySelectorAll!=='function')return;
       const animate = globalThis.Element?.prototype.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (!animate && !context) return;
       if (document.hidden) return;
       for(const cue of cues)cue.countsBefore?.forEach((count,p)=>{
         const node=root.querySelector(`[data-card-count="${p}"]`);
@@ -469,7 +520,7 @@ export function createFeedbackPlayer(root) {
         later(() => {
           if (document.hidden) return;
           if(cue.terminal)for(const element of hiddenOutcomes){element.style.visibility='';element.removeAttribute('aria-hidden');hiddenOutcomes.delete(element);}
-          if (animate && !step) draw(cue);
+          if ((animate||cue.kind==='status') && !step) draw(cue);
           if(!animate&&cue.countsAfter)settleCounts(cue);
           if (!isEnabled() || cue.audible === false || cue.withPrevious) return;
           if(cue.kind==='point-result'){
@@ -477,6 +528,7 @@ export function createFeedbackPlayer(root) {
               if(!document.hidden&&isEnabled())playBuffer(audio.get(cue.tie?'point-tie':`point-result-${index+1}`),0.38);
             },index*POINT_RESULT_PULSE_MS/3);
           }
+          else if(cue.kind==='status')playBuffer(audio.get(`status-${cue.changes[0].mode==='clear'?'guard':cue.changes[0].family}`),.24);
           else if(cue.kind==='seal')playTone('commit',INTERACTION_SOUNDS.commit,isEnabled,.24);
           else if(cue.kind.startsWith('point-'))playBuffer(audio.get(cue.kind),0.38);
           else if (step) playTone(cue.kind,step.tone,isEnabled,0.30);
@@ -484,7 +536,7 @@ export function createFeedbackPlayer(root) {
         },start);
         if (!cue.withPrevious) {
           previousStart = start;
-          delay += cue.gap ?? step?.gap ?? {reveal:180,advantage:440,hit:230,block:230,heal:300,retreat:cue.escaped?800:420,seal:0,shuffle:0,win:0,victory:0,defeat:0,draw:0,'point-result':POINT_RESULT_PULSE_MS}[cue.kind];
+          delay += cue.gap ?? step?.gap ?? {reveal:180,advantage:440,hit:230,block:230,heal:300,status:180,retreat:cue.escaped?800:420,seal:0,shuffle:0,win:0,victory:0,defeat:0,draw:0,'point-result':POINT_RESULT_PULSE_MS}[cue.kind];
         }
       }
     },

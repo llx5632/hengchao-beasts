@@ -386,7 +386,10 @@ test('完全格挡播放独立音效，减少动态效果与静音设置生效',
   await page.locator('[data-action="battle-layout"]').click();
   await ready(page);
   await choose(page).click();
-  await expect.poll(()=>events(page)).toEqual([{duration:280,animating:false,numbers:[]}]);
+  await expect.poll(()=>events(page)).toEqual([
+    {duration:280,animating:false,numbers:[]},
+    {duration:240,animating:false,numbers:[]},
+  ]);
   expect((await saved(page)).match.battle.hp).toEqual([40,160]);
   const toggle=page.locator('[data-action="effects-toggle"]');
   await openAudioMenu(page);

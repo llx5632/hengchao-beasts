@@ -1,4 +1,5 @@
 import { CARD, TWIN_PARTNERS } from './data.js';
+import { statusFeedback } from './status-feedback.js';
 export function battleEndedBySurrender(m){return Boolean(m.mode==='battle'&&m.status==='finished'&&m.transfers?.some(t=>t.reason==='战斗投降'));}
 const empty=()=>({charge:[false,false],shield:[0,0],echo:[0,0],burn:[0,0],mark:[null,null],weaken:[0,0],root:[0,0],seal:[false,false],debt:[0,0],wind:[-1,-1],prediction:[null,null],foresight:[0,0],deathWard:[0,0],deathUsed:[false,false],deathPower:[0,0],reviveWard:[false,false],reviveUsed:[false,false],reflectWard:[false,false],reflectRate:[0,0],reflectCap:[0,0],reflectSource:[null,null],cooling:[0,0],coolingMultiplier:[1,1],coolingSource:[null,null]});
 // One invocation per resolved, non-tied RPS. Preview/AI use the same transition.
@@ -123,6 +124,20 @@ export function resolveCombatAction(battle,player,action){
     return damage;
   }
   function outcome(finished=false,winner=null){
+    const applied=action.type==='attack'&&!effects.directEnded?CARD[battle.cards[player]].skills[action.skill].effect:null;
+    const refresh={burn:'burn',weaken:'weaken'}[applied]??null;
+    const conditions=[];
+    const conditionNames={desperate:'绝境反扑',pursuit:'封路追击','twin-blood':'双生强项'};
+    if(!finished)for(const p of [0,1]){
+      const previous=combatStatuses({...empty(),...battle},p);
+      for(const status of combatStatuses(state,p)){
+        const old=previous.find(item=>item.id===status.id);
+        if(conditionNames[status.id]&&old&&old.active!==status.active){
+          conditions.push({p,key:status.id,name:conditionNames[status.id],active:status.active});
+        }
+      }
+    }
+    feedback.push(...statusFeedback(battle,state,{effects,finished,refresh,target:other,conditions}));
     if(finished){effects.burnSkipped=startBurn.some(Boolean)&&!effects.burnDamage.some(Boolean);clearCombatStatuses(state);}
     else for(const p of [0,1])if(CARD[state.cards[p]].id==='jinzong'){
       if(battle.hp[p]>60&&state.hp[p]<=60)events.push(`${label(p)}剩余HP降至${state.hp[p]}，绝境效果生效`);
