@@ -181,6 +181,7 @@ export function resolveCombatAction(battle,player,action){
   }
   if(action.type==='retreat'){
     state.remaining[player]--;text=`选择撤退，剩余撤退点数 ${state.remaining[player]}`;
+    feedback.push({kind:'retreat',p:player,beforeRemaining:battle.remaining[player],afterRemaining:state.remaining[player],escaped:state.remaining[player]===0});
     return state.remaining[player]===0?outcome(true,null):actionEnd();
   }
   const skill=CARD[state.cards[player]].skills[action.skill];let bonus=0;

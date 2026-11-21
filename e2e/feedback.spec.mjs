@@ -74,6 +74,54 @@ function selectedBattle(value, own, enemy, between=false) {
   return match;
 }
 
+for(const remaining of [2,1])test(`撤退剩余${remaining}时步进、擦地声和成功淡出`,async({page})=>{
+  const value=session();
+  value.match=selectedBattle(value,'lujia','liejing');
+  value.match.battle.remaining[0]=remaining;
+  await setup(page,value);
+  await page.locator('.match-head h2').click();
+  await ready(page);
+  await page.locator('[data-action="retreat"]').click();
+  if(remaining===1)await expect(page.locator('.result-title')).toBeHidden();
+  await expect.poll(async()=>(await events(page)).map(event=>event.duration)).toEqual(remaining===1?[280,720]:[280]);
+  expect((await saved(page)).match.battle.remaining[0]).toBe(remaining-1);
+  if(remaining===1){
+    await expect(page.locator('.result-title')).toHaveText('撤退成功，双方保卡');
+    await expect.poll(()=>page.locator('[data-feedback-side="0"] .combat-card').evaluate(node=>Number(getComputedStyle(node).opacity))).toBe(0);
+    expect((await saved(page)).match.transfers).toHaveLength(0);
+  }else{
+    expect((await saved(page)).match.status).toBe('active');
+  }
+  await page.screenshot({path:`qa/retreat-${remaining}-${test.info().project.name}.png`,fullPage:true});
+  await page.reload();
+  expect(await events(page)).toEqual([]);
+  await noOverflow(page);
+});
+
+for(const outcome of ['victory','defeat','draw'])test(`最后一击与${outcome}整场提示合并收尾`,async({page})=>{
+  const value=session();
+  value.match=selectedBattle(value,'luwenzhi','panjia');
+  if(outcome!=='defeat')value.match.battle.hp[1]=1;
+  if(outcome!=='victory'){
+    value.match.battle.hp[0]=1;
+    value.match.battle.reflectWard=[false,true];
+    value.match.battle.reflectRate=[0,100];
+    value.match.battle.reflectCap=[0,50];
+  }
+  await setup(page,value);
+  await page.locator('.match-head h2').click();
+  await ready(page);
+  await choose(page).click();
+  const duration={victory:1030,defeat:580,draw:720}[outcome];
+  await expect.poll(async()=>(await events(page)).at(-1)?.duration).toBe(duration);
+  const sounds=await events(page);
+  expect(sounds.filter(event=>event.duration===duration)).toHaveLength(1);
+  if(outcome!=='victory')expect(sounds.some(event=>event.duration===1030)).toBe(false);
+  expect((await saved(page)).match.winner).toBe(outcome==='draw'?null:outcome==='victory'?0:1);
+  await expect(page.locator('.result-title')).toBeVisible();
+  await noOverflow(page);
+});
+
 for(const tie of [false,true])test(`猜拳${tie?'平手可立即重比，余下提示停止':'先揭两边手势，再提示行动权'}`,async({page})=>{
   const value=session();
   let match=createLocalMatch('battle',value.players);

@@ -51,7 +51,7 @@ export function renderTutorial(state,face,audioControls='',pending=false) {
       content+=`<div class="tutorial-outcome" role="status"><strong>${last.text}</strong><span>本次HP变化已标在受击卡牌下方；接下来重新猜拳。</span></div>`;
       actions=button('进入下一轮猜拳','next');
     }else if(m.status==='finished'){
-      content+=`<div class="tutorial-outcome" role="status"><strong data-feedback-transfer>${m.reason}</strong><span>${m.winner===0?'本次练习获胜；正式对局会赢得对方出战谱印。':'本次平局，双方保留出战谱印。'}</span></div>`;
+      content+=`<div class="tutorial-outcome" data-match-outcome role="status"><strong data-feedback-transfer>${m.reason}</strong><span>${m.winner===0?'本次练习获胜；正式对局会赢得对方出战谱印。':'本次平局，双方保留出战谱印。'}</span></div>`;
       if(state.lesson==='battle')content+='<p class="tutorial-retreat-reminder">苔团本次只需撤退一步，因为剩余撤退原本为1。其他卡可能需要多次争得行动权，逐步撤退到0。</p>';
       actions=button(state.lesson==='attribute'?'开始第二场：进攻与撤退':'开始拼点教学','next');
     }else actions=button('开始猜拳','next');

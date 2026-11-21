@@ -10,6 +10,8 @@ export const EFFECT_FILES = Object.freeze({
   'point-result-2':'sfx-point-result-2.wav',
   'point-result-3':'sfx-point-result-3.wav',
   'point-tie':'sfx-point-tie.wav',
+  retreat:'sfx-retreat.wav', victory:'sfx-win.wav',
+  defeat:'sfx-defeat.wav', draw:'sfx-draw.wav',
 });
 
 const REVEAL_DURATION = 132; // The metal strike begins 132 ms into the WAV.
@@ -73,9 +75,12 @@ export function matchFeedback(before, after) {
     }
   }
   const awards = after.transfers.slice(before.transfers.length);
-  if (awards.length) {
+  if(after.status==='finished'&&before.status!=='finished'){
+    const escaped=cues.some(cue=>cue.kind==='retreat'&&cue.escaped);
+    cues.push({kind:after.winner===null?'draw':after.winner===0?'victory':'defeat',p:after.winner,escaped,terminal:true});
+  }else if (awards.length) {
     const winner = awards[0].to;
-    cues.push({kind:'win',p:winner,audible:winner === 0});
+    cues.push({kind:'win',p:winner,audible:winner === 0&&!(after.mode==='point'&&after.round===5)});
   }
   return cues;
 }
@@ -94,6 +99,7 @@ export function createFeedbackPlayer(root) {
   let context, revision=0;
   const audio = new Map(), clicks = new Map(), playing = new Set(), timers = new Set(), bars = new Map();
   const resultAnimations = new Set();
+  const hiddenOutcomes = new Set();
 
   function stopAudio() {
     for (const source of playing) source.stop();
@@ -240,6 +246,30 @@ export function createFeedbackPlayer(root) {
   }
 
   function draw(cue) {
+    if(cue.kind==='retreat'){
+      const side=root.querySelector(`[data-feedback-side="${cue.p}"]`);
+      const card=side?.querySelector(FEEDBACK_CARD);
+      if(card){
+        const frames=cue.escaped?[
+          {transform:'translateY(0) scale(1)',opacity:1},
+          {transform:'translateY(-10px) scale(.97)',opacity:1,offset:.45},
+          {transform:'translateY(-16px) scale(.95)',opacity:0},
+        ]:[{transform:'translateY(0) scale(1)'},{transform:'translateY(-10px) scale(.97)',offset:.6},{transform:'translateY(0) scale(1)'}];
+        const animation=card.animate(frames,{duration:cue.escaped?760:420,easing:'ease-in-out',fill:cue.escaped?'forwards':'none'});
+        resultAnimations.add(animation);
+      }
+      return;
+    }
+    if(cue.terminal){
+      for(const element of root.querySelectorAll('[data-match-outcome]')){
+        element.style.visibility='';element.removeAttribute('aria-hidden');
+        hiddenOutcomes.delete(element);
+        const animation=element.animate([{opacity:0,transform:'translateY(4px)'},{opacity:1,transform:'none'}],{duration:260,easing:'ease-out'});
+        resultAnimations.add(animation);
+      }
+      if(cue.kind==='victory')draw({kind:'win',p:0,audible:true});
+      return;
+    }
     if(cue.kind==='point-result'){
       const animation=root.querySelector('[data-point-result]')?.animate([
         {backgroundColor:'#e8dfc9',boxShadow:'0 0 0 0 transparent'},
@@ -326,12 +356,20 @@ export function createFeedbackPlayer(root) {
       resultAnimations.clear();
       for (const [bar,finalWidth] of bars) bar.style.width = finalWidth;
       bars.clear();
+      for(const element of hiddenOutcomes){element.style.visibility='';element.removeAttribute('aria-hidden');}
+      hiddenOutcomes.clear();
     },
     show(cues, isEnabled) {
       if (!cues.length) return;
       const animate = globalThis.Element?.prototype.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches;
       if (!animate && !context) return;
       if (document.hidden) return;
+      if(cues.some(cue=>cue.terminal)&&cues.length>1){
+        for(const element of root.querySelectorAll('[data-match-outcome]')){
+          element.style.visibility='hidden';element.setAttribute('aria-hidden','true');
+          hiddenOutcomes.add(element);
+        }
+      }
       if (animate) {
         for (const cue of cues) {
           if (cue.before === undefined) continue;
@@ -353,6 +391,7 @@ export function createFeedbackPlayer(root) {
         if (animate && step) animateResult(cue,step,start);
         later(() => {
           if (document.hidden) return;
+          if(cue.terminal)for(const element of hiddenOutcomes){element.style.visibility='';element.removeAttribute('aria-hidden');hiddenOutcomes.delete(element);}
           if (animate && !step) draw(cue);
           if (!isEnabled() || cue.audible === false || cue.withPrevious) return;
           if(cue.kind==='point-result'){
@@ -366,7 +405,7 @@ export function createFeedbackPlayer(root) {
         },start);
         if (!cue.withPrevious) {
           previousStart = start;
-          delay += cue.gap ?? step?.gap ?? {reveal:180,advantage:440,hit:175,block:175,heal:250,win:0,'point-result':POINT_RESULT_PULSE_MS}[cue.kind];
+          delay += cue.gap ?? step?.gap ?? {reveal:180,advantage:440,hit:230,block:230,heal:300,retreat:cue.escaped?800:420,win:0,victory:0,defeat:0,draw:0,'point-result':POINT_RESULT_PULSE_MS}[cue.kind];
         }
       }
     },
