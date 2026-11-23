@@ -3,12 +3,13 @@ export const MUSIC_FILES = Object.freeze({
   battle: 'music-battle.mp3',
 });
 
-const VOLUME = 0.25;
+import { normalizeVolume, DEFAULT_MUSIC_VOLUME } from './audio-settings.js';
 const FADE_SECONDS = 0.4;
 
 export function createMusicPlayer() {
   let context, output, playing, requestedScene, audible = false, revision = 0;
   const buffers = new Map();
+  let volume=DEFAULT_MUSIC_VOLUME;
 
   function loadTrack(scene) {
     if (!buffers.has(scene)) {
@@ -54,7 +55,10 @@ export function createMusicPlayer() {
   }
 
   return {
-    update(scene, { enabled, visible, gesture = false }) {
+    update(scene, { enabled, visible, gesture = false, volume:requestedVolume=DEFAULT_MUSIC_VOLUME }) {
+      const nextVolume=normalizeVolume(requestedVolume,DEFAULT_MUSIC_VOLUME);
+      volume=nextVolume;
+      if(output&&audible)output.gain.setTargetAtTime(volume/100,context.currentTime,.025);
       const shouldPlay = enabled && visible;
       if (scene === requestedScene && shouldPlay === audible && !gesture) return;
       requestedScene = scene;
@@ -63,6 +67,7 @@ export function createMusicPlayer() {
 
       if (!audible) {
         if (context) {
+          output.gain.cancelScheduledValues(context.currentTime);
           output.gain.value = 0;
           void context.suspend().catch(() => {});
         }
@@ -80,7 +85,7 @@ export function createMusicPlayer() {
       }
       if (!context) return;
 
-      output.gain.value = VOLUME;
+      output.gain.setTargetAtTime(volume/100,context.currentTime,.025);
       void context.resume()
         .then(() => {
           if (request !== revision || playing?.scene === scene) return;

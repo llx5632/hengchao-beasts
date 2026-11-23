@@ -90,7 +90,7 @@ test('顶部音频入口在正式页面与教程可用，移动端菜单支持�
   await expect(effects).toHaveAttribute('aria-pressed','true');
   await expect(music).toHaveAttribute('aria-pressed','false');
   if(mobile){
-    await page.locator('#tutorial-heading').click();
+    await page.locator('#tutorial-heading').click({position:{x:4,y:4}});
     await expect(switches).toBeHidden();
   }
   await noOverflow(page);

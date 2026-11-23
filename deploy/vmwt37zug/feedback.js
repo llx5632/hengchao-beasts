@@ -1,5 +1,6 @@
 import { RPS_CHOICES } from './ui.js';
 import { statusFeedback } from './status-feedback.js';
+import { normalizeVolume, DEFAULT_EFFECTS_VOLUME } from './audio-settings.js';
 
 export const EFFECT_FILES = Object.freeze({
   reveal:'sfx-reveal.wav', advantage:'sfx-advantage.wav', hit:'sfx-hit.wav',
@@ -113,7 +114,8 @@ export const POINT_RESULT_PULSE_MS=1200;
 
 export function createFeedbackPlayer(root) {
   let context, revision=0;
-  const audio = new Map(), clicks = new Map(), playing = new Set(), timers = new Set(), bars = new Map();
+  const audio = new Map(), clicks = new Map(), playing = new Map(), timers = new Set(), bars = new Map();
+  let effectsVolume=DEFAULT_EFFECTS_VOLUME;
   const resultAnimations = new Set();
   const hiddenOutcomes = new Set();
   const transientNodes = new Set();
@@ -155,7 +157,7 @@ export function createFeedbackPlayer(root) {
   }
 
   function stopAudio() {
-    for (const source of playing) source.stop();
+    for (const source of playing.keys()) source.stop();
     playing.clear();
   }
 
@@ -187,9 +189,9 @@ export function createFeedbackPlayer(root) {
     const source = context.createBufferSource();
     const volume = context.createGain();
     source.buffer = buffer;
-    volume.gain.value = level;
+    volume.gain.value = level*effectsVolume/100;
     source.connect(volume).connect(context.destination);
-    playing.add(source);
+    playing.set(source,{volume,level});
     source.onended = () => {
       playing.delete(source);
       source.disconnect();
@@ -456,6 +458,10 @@ export function createFeedbackPlayer(root) {
   }
 
   return {
+    setVolume(value){
+      effectsVolume=normalizeVolume(value,DEFAULT_EFFECTS_VOLUME);
+      for(const {volume,level} of playing.values())volume.gain.setTargetAtTime(level*effectsVolume/100,context.currentTime,.025);
+    },
     unlock,
     stopAudio,
     interact(kind, element, isEnabled) {

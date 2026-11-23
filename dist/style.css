@@ -248,3 +248,20 @@
 .status-line-harm{border-color:#f0b095}
 .status-particle{position:absolute;top:22%;left:50%;width:5px;height:8px;border-radius:1px;pointer-events:none;z-index:4}
 @media(max-width:640px){.status-feedback{font-size:11px;padding:7px 9px}}
+
+.audio-channel{display:flex;flex-direction:column;gap:4px;min-width:0}
+.audio-channel .audio-switch{min-height:30px;padding:4px 8px}
+.audio-volume{display:flex;align-items:center;gap:6px;width:132px;font-size:11px}
+.audio-volume input{width:88px;min-width:0;accent-color:#bb9854;cursor:pointer}
+.audio-volume output{min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
+.skill-choice{min-width:0;display:flex;flex-direction:column;gap:8px}
+.skill-choice>.skill-button{width:100%}
+.combat-details{border:1px solid var(--line);border-radius:5px;padding:10px 12px;background:#f4edde;font-size:12px;line-height:1.8;overflow-wrap:anywhere}
+.combat-details summary{cursor:pointer;color:var(--muted);font-size:12px}
+.combat-details[open] summary{margin-bottom:8px}
+.combat-details .skill-base,.combat-details .skill-actual,.combat-details .skill-projection,.combat-details .skill-notice{display:block;margin:7px 0}
+.combat-details p{margin:8px 0 0}
+.action-feedback .combat-details{margin-top:12px;font-weight:400}
+@media(max-width:760px){.audio-options{min-width:214px;gap:12px}.audio-volume{width:100%;min-height:32px}.audio-volume input{flex:1;width:140px}.audio-channel .audio-switch{min-height:40px}.topbar .audio-options .audio-volume{color:var(--ink)}}
+
+.skill-state-preview{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;font-size:11px;line-height:1.6}.skill-state-preview>span{background:#e9e1ce;border:1px solid #d3c4a5;padding:3px 6px;border-radius:4px}

@@ -4,6 +4,27 @@ import { loadSession, saveSession } from '../dist/storage.js';
 import { freshSession, createLocalMatch, SAVE_KEY, upgradeSession } from '../dist/session.js';
 import { CARD_GRANTS } from '../dist/session-migrations.js';
 
+test('旧存档音量采用原有默认值，零音量和开关独立保存',()=>{
+  const old=freshSession();delete old.musicVolume;delete old.effectsVolume;
+  const storage={getItem:()=>JSON.stringify(old)};
+  assert.equal(loadSession(storage).store.musicVolume,25);
+  assert.equal(loadSession(storage).store.effectsVolume,100);
+  old.musicVolume=0;old.effectsVolume=37;old.musicEnabled=false;
+  const loaded=loadSession(storage).store;
+  assert.equal(loaded.musicVolume,0);assert.equal(loaded.effectsVolume,37);
+  assert.equal(loaded.musicEnabled,false);
+});
+
+test('音量配置规范化数值，异常类型采用默认值',()=>{
+  const value=freshSession();value.musicVolume=-20;value.effectsVolume=130;
+  const storage={getItem:()=>JSON.stringify(value)};
+  assert.equal(loadSession(storage).store.musicVolume,0);
+  assert.equal(loadSession(storage).store.effectsVolume,100);
+  value.musicVolume='loud';value.effectsVolume=null;
+  assert.equal(loadSession(storage).store.musicVolume,25);
+  assert.equal(loadSession(storage).store.effectsVolume,100);
+});
+
 test('独立存档模块保存并恢复活动对局、收藏、偏好和草稿',()=>{
   const session=freshSession();
   session.match=createLocalMatch('battle',session.players,'hard');

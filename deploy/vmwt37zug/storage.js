@@ -3,6 +3,7 @@ import { normalizeDifficulty } from './ai.js';
 import { normalizePresets } from './roster.js';
 import { normalizeTutorial } from './tutorial.js';
 import { normalizeEasterEgg } from './easter-egg.js';
+import { normalizeVolume, DEFAULT_MUSIC_VOLUME, DEFAULT_EFFECTS_VOLUME } from './audio-settings.js';
 
 const resolveStorage=storage=>typeof storage==='function'?storage():storage;
 
@@ -16,6 +17,8 @@ export function loadSession(storage){
   store.battleCompact=store.battleCompact!==false;
   store.musicEnabled=store.musicEnabled!==false;
   store.effectsEnabled=store.effectsEnabled!==false;
+  store.musicVolume=normalizeVolume(store.musicVolume,DEFAULT_MUSIC_VOLUME);
+  store.effectsVolume=normalizeVolume(store.effectsVolume,DEFAULT_EFFECTS_VOLUME);
   store.lineupPresets=normalizePresets(store.lineupPresets);
   store.selectionDrafts=store.selectionDrafts&&typeof store.selectionDrafts==='object'&&!Array.isArray(store.selectionDrafts)?store.selectionDrafts:{};
   store.tutorial=normalizeTutorial(store.tutorial,!hadSavedSession);

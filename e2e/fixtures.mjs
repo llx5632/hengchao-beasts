@@ -50,6 +50,12 @@ export async function openAudioMenu(page){
 export async function noOverflow(page){
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'页面不应横向溢出').toBe(true);
 }
+export async function expandSkill(button){
+  const choice=button.locator('..');
+  const details=choice.locator('details');
+  if(await details.getAttribute('open')===null)await details.locator('summary').click();
+  return choice;
+}
 export async function loadedImages(page,selector='img'){
   const images=page.locator(selector);
   await expect(images.first()).toBeVisible();

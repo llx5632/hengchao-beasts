@@ -1,3 +1,4 @@
+import {expandSkill} from './fixtures.mjs';
 import {test,expect,session,openSession,saved,noOverflow,loadedImages,createLocalMatch,dispatch,CARDS} from './fixtures.mjs';
 
 function scenario(cards=['huangjitun','panjia'],hp=null,reflectPlayer=null){
@@ -39,7 +40,7 @@ test('实际准备反刺、查看状态、刷新续局并重施不叠加',async(
   await page.getByRole('button',{name:'进入下一轮猜拳',exact:true}).click();
   await page.getByRole('button',{name:'出石头',exact:true}).click();
   await page.getByRole('button',{name:'选择本次行动',exact:true}).click();
-  await expect(page.locator('[data-action="attack"][data-skill="1"]')).toContainText('已有反刺');
+  await expect(await expandSkill(page.locator('[data-action="attack"][data-skill="1"]'))).toContainText('已有反刺');
   await page.locator('[data-action="attack"][data-skill="1"]').click();
   const after=await saved(page);expect(after.match.battle.reflectCap[0]).toBe(50);expect(after.match.battle.hp[1]).toBe(130);
   await noOverflow(page);
@@ -49,7 +50,7 @@ test('致命反刺预览与真实平局一致，双方保卡且刷新不重复�
   const value=scenario(['panjia','huangjitun'],[30,30],1);
   await openSession(page,value);
   const attack=page.locator('[data-action="attack"][data-skill="1"]');
-  await expect(attack).toContainText('反刺及死亡反应后双方HP归零');
+  await expect(await expandSkill(attack)).toContainText('反刺及死亡反应后双方HP归零');
   await expect(attack).toContainText('自己最终HP：30 → 0');
   await noOverflow(page);await page.screenshot({path:info.outputPath('huangji-draw-preview.png'),fullPage:true});
   await attack.click();
@@ -62,7 +63,7 @@ test('致命反刺预览与真实平局一致，双方保卡且刷新不重复�
 test('弱攻击消耗反刺后继续治疗，预览与真实HP一致',async({page},info)=>{
   await openSession(page,scenario(['woxu','huangjitun'],[25,80],1));
   const attack=page.locator('[data-action="attack"][data-skill="1"]');
-  await expect(attack).toContainText('实际反刺伤害15');await expect(attack).toContainText('自己最终HP：25 → 20');
+  await expect(await expandSkill(attack)).toContainText('实际反刺伤害15');await expect(attack).toContainText('自己最终HP：25 → 20');
   await attack.click();await expect(page.locator('.action-feedback')).toContainText('反刺');
   const after=await saved(page);expect(after.match.battle.hp).toEqual([20,65]);expect(after.match.battle.reflectWard[1]).toBe(false);expect(after.match.status).toBe('active');
   await noOverflow(page);await page.screenshot({path:info.outputPath('huangji-weak-counter.png'),fullPage:true});
@@ -70,7 +71,7 @@ test('弱攻击消耗反刺后继续治疗，预览与真实HP一致',async({pag
 
 test('骰点决定前预告反刺致败，保留后只结一次并转实际卡',async({page},info)=>{
   await openSession(page,scenario(['koujinchan','huangjitun'],[25,80],1));
-  await expect(page.locator('[data-action="attack"][data-skill="0"]')).toContainText('骰点6：实际直接伤害60');
+  await expect(await expandSkill(page.locator('[data-action="attack"][data-skill="0"]'))).toContainText('骰点6：实际直接伤害60');
   await page.locator('[data-action="attack"][data-skill="0"]').click();
   await expect(page.getByRole('heading',{name:'首掷 6 点',exact:true})).toBeVisible();
   await expect(page.locator('.panel').last()).toContainText('因反刺及后续结算归零，自己战败');

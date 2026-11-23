@@ -43,7 +43,7 @@ export function appHarness(saved=null) {
   const document={hidden:false,querySelector(selector){
     const fixed={'#app':app,'#toast':toast,'#dialog':dialogs[0],'#card-dialog':dialogs[1],'#easter-egg-dialog':dialogs[2],'#preset-name':input};
     if(selector in fixed)return fixed[selector];
-    if(selector==='dialog[open], .log[open], .lineup-reference[open]')return dialogs.find(d=>d.open)??['.log','.lineup-reference'].map(s=>nodes.get(s)).find(n=>n?.open)??null;
+    if(selector==='dialog[open], .log[open], .lineup-reference[open], .combat-details[open]')return dialogs.find(d=>d.open)??['.log','.lineup-reference','.combat-details'].map(s=>nodes.get(s)).find(n=>n?.open)??null;
     if(selector==='.flow-controls [role="status"]')return html.includes('class="flow-controls"')?status:null;
     return nodes.get(selector)??null;
   },querySelectorAll(){return [];},addEventListener(name,handler){listeners[name]=handler;}};

@@ -21,6 +21,7 @@ const fresh=freshSession;
 const music=createMusicPlayer();
 const feedback=createFeedbackPlayer(app);
 let {store,hadSavedSession,sessionUpdated}=loadSession(()=>localStorage);
+feedback.setVolume(store.effectsVolume);
 let route=store.match&&!(store.selectionLobby&&canLeaveSelection(store.match)) ? 'match' : 'home', draft=selectionDraft(store.match), filter='全部', owner=0, timer=null, toastTimer=null, previewCardId=null, paused=false;
 let selectionElement='全部',selectionSort='default',selectionAscending=false,selectedOnly=false,draftOverviewOpen=false;
 let presetsOpen=false,draftNotice=draft.length?'已恢复上次未封存的选卡。':'';
@@ -129,8 +130,8 @@ function audioControls(){
   return `<div class="audio-controls">
     <button type="button" class="audio-disclosure" data-action="audio-menu" aria-label="音频设置" aria-expanded="${audioMenuOpen}" aria-controls="audio-options"><span aria-hidden="true">🔊</span></button>
     <div class="audio-options" id="audio-options" role="group" aria-label="音频设置">
-      <button type="button" class="audio-switch" data-action="music-toggle" aria-label="背景音乐" aria-pressed="${store.musicEnabled}">音乐</button>
-      <button type="button" class="audio-switch" data-action="effects-toggle" aria-label="对局音效" aria-pressed="${store.effectsEnabled}">音效</button>
+      <div class="audio-channel"><button type="button" class="audio-switch" data-action="music-toggle" aria-label="背景音乐" aria-pressed="${store.musicEnabled}">音乐</button><label class="audio-volume"><input type="range" min="0" max="100" step="1" value="${store.musicVolume}" data-action="music-volume" aria-label="音乐音量"><output data-volume-output="music">${store.musicVolume}%</output></label></div>
+      <div class="audio-channel"><button type="button" class="audio-switch" data-action="effects-toggle" aria-label="对局音效" aria-pressed="${store.effectsEnabled}">音效</button><label class="audio-volume"><input type="range" min="0" max="100" step="1" value="${store.effectsVolume}" data-action="effects-volume" aria-label="音效音量"><output data-volume-output="effects">${store.effectsVolume}%</output></label></div>
     </div>
   </div>`;
 }
@@ -143,7 +144,7 @@ function setAudioMenu(open, restoreFocus=false){
 function syncMusic(gesture=false){
   const match=route==='tutorial'?store.tutorial.match:route==='match'?store.match:null;
   const scene=match?.mode==='battle'&&match.status==='active'?'battle':'explore';
-  music.update(scene,{enabled:store.musicEnabled,visible:!document.hidden,gesture});
+  music.update(scene,{enabled:store.musicEnabled,visible:!document.hidden,gesture,volume:store.musicVolume});
 }
 function footer(){
   return '<footer class="footer"><span>衡潮群岛 / 原创异兽卡牌</span><span>本地浏览器保存 · 抽卡后续开放</span></footer>';
@@ -185,7 +186,8 @@ function rpsResult(m){
 function actionFeedback(m){
   const last=battleEndedBySurrender(m)?null:m.battle?.last;if(!last)return '';
   const changes=last.before&&last.after?[0,1].flatMap(p=>['hp','remaining'].flatMap(field=>{const before=last.before[field][p],after=last.after[field][p];if(before===after)return [];return [`<div><span>${name(p)} · ${field==='hp'?'剩余 HP':'剩余撤退'}</span><strong>${before} → ${after} ${stateChange(last,field,p)}</strong></div>`];})).join(''):'';
-  return `<div class="action-feedback" role="status"><strong>${name(last.player)} · ${esc(last.text)}</strong>${changes?`<div class="change-list">${changes}</div>`:''}</div>`;
+  const headline=last.text.split('；')[0];
+  return `<div class="action-feedback" role="status"><strong>${name(last.player)} · ${esc(headline)}</strong>${changes?`<div class="change-list">${changes}</div>`:''}<details class="combat-details"><summary>查看本次结算详情</summary><p>${esc(last.text)}</p></details></div>`;
 }
 function selectionPreview(m,p){const c=CARD[previewCardId]&&m.inventories[p].some(i=>i.cardId===previewCardId)?CARD[previewCardId]:CARD[m.inventories[p][0].cardId];return `<aside class="selection-preview" aria-label="选卡预览"><div class="eyebrow">出战前预览</div><div class="preview-overview">${playedCard(c)}<div><h3>${c.name}</h3><p>${c.tier} · ${c.element}属性 · 克制${BEATS[c.element]}<br>基础 HP <b>${c.hp}</b><br>基础撤退 <b>${c.retreat}</b><br>${c.height}m / ${c.weight}kg</p></div></div><div class="reading-skills">${c.skills.map(s=>`<div><strong>${s.name}</strong><p>${skillText(s)}</p></div>`).join('')}</div><p class="preview-story">${c.story}</p>${m.mode==='battle'&&TWIN_PARTNERS[c.id]?`<p class="skill-notice">${m.inventories[p].some(i=>i.cardId===TWIN_PARTNERS[c.id])?`已持有${CARD[TWIN_PARTNERS[c.id]].name}，封存时绑定一张伙伴谱印；相转继承伤势，战败只失去当前形态。`:`缺少${CARD[TWIN_PARTNERS[c.id]].name}，本场${c.skills.find(s=>s.effect==='twin-shift').name}不可用。`}</p>`:''}<small class="subtle">点击卡面可放大；预览不会提交出战卡。</small></aside>`;}
 function selectionTools(m,p,visible){
@@ -207,7 +209,7 @@ function skillButton(battle,p,skill,index){
   if(skill.effect==='dice'){
     const range=previewSkill(battle,p,index),reflected=range.outcomes.some(r=>r.reflectTriggered.some(Boolean));
     const reactions=reflected?range.outcomes.map((r,i)=>`<span class="skill-notice">骰点${i+1}：实际直接伤害${r.damage}；反刺原始${r.reflectRaw[p]}、护盾抵消${r.reflectBlocked[p]}、实际反伤${r.reflectDamage[p]}；自己最终HP${r.ownHp}、对方${r.targetHp}${r.draw?'；平局保卡':r.selfDefeat?'；自己战败':r.lethal?'；自己获胜':''}。</span>`).join(''):'';
-    return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="掷金碰运：可能实际伤害${range.minDamage}至${range.maxDamage}${reflected?'，各骰点的反刺与最终HP见下方预览':''}"><em>${range.minDamage}～${range.maxDamage}<small>可能实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-notice">掷出结果后可保留，或重掷一次并接受新结果；全程只算一次进攻。${battle.cooling?.[1-p]?`对方散热：各骰点直接伤害×1.5，最终出手才计1次，0扣血也计次。`:""}</span>${reactions}${range.outcomes.some(r=>r.selfDefeat)?`<span class="skill-notice risk">${reflected?'警告：部分骰点会因反刺及后续结算使自己战败。':'未直接致胜时，行动末持续伤害可能使自己归零。'}</span>`:''}</button>`;
+    return `<div class="skill-choice"><button class="skill-button" data-action="attack" data-skill="${index}" aria-label="掷金碰运：可能实际伤害${range.minDamage}至${range.maxDamage}${reflected?'，各骰点的反刺与最终HP见下方预览':''}"><em>${range.minDamage}～${range.maxDamage}<small>可能实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-notice">掷出结果后可保留，或重掷一次并接受新结果；全程只算一次进攻。${battle.cooling?.[1-p]?`对方散热：各骰点直接伤害×1.5，最终出手才计1次，0扣血也计次。`:""}</span>${range.outcomes.some(r=>r.selfDefeat)?`<span class="skill-notice risk">${reflected?'警告：部分骰点会因反刺及后续结算使自己战败。':'未直接致胜时，行动末持续伤害可能使自己归零。'}</span>`:''}</button><details class="combat-details"><summary>查看${skill.name}的规则与骰点明细</summary><span class="skill-base">基础：${skillText(skill)}</span>${reactions}</details></div>`;
   }
   if(!skillAvailable(battle,p,index))return `<button class="skill-button" disabled aria-label="${skill.name}不可用：${skillUnavailableReason(battle,p,index)}"><em>—</em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-notice">${skillUnavailableReason(battle,p,index)}</span></button>`;
   const actual=previewSkill(battle,p,index),b=actual.breakdown,notes=[];
@@ -258,11 +260,12 @@ function skillButton(battle,p,skill,index){
   for(const q of [0,1])if(actual.burnDamage[q])notes.push(`${name(q)}行动末烙印伤害 ${actual.burnDamage[q]}`);
   if(actual.burnSkipped)notes.push('本次立即结束，不再结算持续伤害。');
   const impact=`实际伤害 ${actual.damage}${skill.effect==='retreat-trade'?` · 对方剩余撤退 ${battle.remaining[1-p]} → ${actual.targetRetreat}`:''}${['heal','drain'].includes(skill.effect)?` · 实际回血 ${actual.healing}`:skill.effect==='delay'?` · 对方剩余撤退 +${actual.delay}`:''}`;
+  const statePreview=actual.statusChanges?.flatMap(cue=>cue.changes.map(change=>`${cue.p===p?'自己':'对方'} · ${change.label}`))??[];
   const afterShield=Math.max(0,b.afterReduction-b.blocked);
   const immediate=afterShield-b.directDeferred;
   const baseCalculation=`基础${b.base}${b.percentBonus?`＋最大HP追加${b.percentBonus}`:''}${b.bonus-b.percentBonus?`＋强化${b.bonus-b.percentBonus}`:''}`;
   const calculation=`${['max-hp','retreat-trade','shield-strike'].includes(skill.effect)&&(b.elementMultiplier!==1||b.multiplier!==1||b.vulnerabilityMultiplier!==1)?`（${baseCalculation}）`:baseCalculation}${b.elementMultiplier!==1?`×属性倍率${b.elementMultiplier}`:''}${b.multiplier!==1?'×削弱75%':''}${b.vulnerabilityMultiplier!==1?`×散热${b.vulnerabilityMultiplier}`:''}${b.multiplier!==1||b.vulnerabilityMultiplier!==1?`→统一向下取整${b.afterReduction}`:''}${b.blocked?`－护盾${b.blocked}`:''}${b.directDeferred?`－暂存${b.directDeferred}`:''}＝${immediate}${actual.damage<immediate?`；实际直接扣血受剩余HP限制为${actual.damage}`:''}${b.directSettled?`；旧伤另扣${b.directSettled}`:''}`;
-  return `<button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='shield-strike'||skill.effect==='leaf-shield'||skill.effect==='max-hp'||skill.effect==='heal'||skill.effect==='drain'||actual.burnDamage[p]||actual.deathDamage[p]||actual.reviveTriggered[p]||actual.reflectTriggered.some(Boolean)?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</button>`;
+  return `<div class="skill-choice"><button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-actual">${impact}</span><span class="skill-projection">对方最终HP：${battle.hp[1-p]} → ${actual.targetHp} · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}</span>${statePreview.length?`<span class="skill-state-preview">${statePreview.map(text=>`<span>${esc(text)}</span>`).join('')}</span>`:''}${actual.selfDefeat?'<span class="skill-notice risk">警告：本次行动结束后自己战败，判负失卡</span>':actual.draw?'<span class="skill-notice">本次平局，双方保卡</span>':actual.lethal?'<span class="skill-notice lethal">本次可击败对方</span>':''}</button><details class="combat-details"><summary>查看${skill.name}的规则与计算</summary><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='shield-strike'||skill.effect==='leaf-shield'||skill.effect==='max-hp'||skill.effect==='heal'||skill.effect==='drain'||actual.burnDamage[p]||actual.deathDamage[p]||actual.reviveTriggered[p]||actual.reflectTriggered.some(Boolean)?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</details></div>`;
 }
 function retreatButton(b,p){
   const r=resolveCombatAction(battleForViewer(b,p),p,{type:'retreat'}),burn=r.effects.burnDamage;
@@ -330,7 +333,7 @@ function finalView(m){
   const transfers=m.transfers.map(t=>`${name(t.from)} → ${name(t.to)}：${CARD[t.cardId].name}（${t.reason}）`);
   return `<section class="panel center"><div class="eyebrow">ENCOUNTER COMPLETE · 对局已结算</div><div data-match-outcome><div class="result-title ${m.winner===null?'draw':''}">${m.reason?.startsWith('撤退成功')?'撤退成功，双方保卡':m.winner===null?'整场平局':`${name(m.winner)} 胜利`}</div><p data-feedback-result>${esc(m.reason)}${m.winner!==null?`<br>${name(1-m.winner)} 失败`:''}</p></div>${m.mode==='point'?`${track(m,0)}<p class="footnote">以上 √ / × 以${name(0)}视角显示；${name(1)}的胜负相反。＝ 代表同卡跳过。</p>`:`${battleBoard(m)}${rpsResult(m)}${actionFeedback(m)}`}<div class="transfer-list" data-match-outcome data-feedback-transfer>${transfers.length?transfers.map(esc).join('<br>'):'本场没有发生卡牌转移，双方保留原卡。'}</div><div class="toolbar" style="justify-content:center">${btn('返回对局大厅','finish-home')}${btn('查看收藏','finish-collection','ghost')}</div></section>`;
 }
-function flowOptions(){return {autoAdvance:store.autoAdvance,paused,dialogOpen:!!document.querySelector('dialog[open], .log[open], .lineup-reference[open]'),hidden:document.hidden};}
+function flowOptions(){return {autoAdvance:store.autoAdvance,paused,dialogOpen:!!document.querySelector('dialog[open], .log[open], .lineup-reference[open], .combat-details[open]'),hidden:document.hidden};}
 function flowControls(m){
   if(m.status!=='active')return '';
   const pending=pointPresentation?.match===m;
@@ -499,6 +502,19 @@ function start(mode){
     save();render({resetReading:true});window.scrollTo(0,0);
   }catch(e){toast(e.message);}
 }
+document.addEventListener('input',event=>{
+  const target=event.target;
+  const action=target.dataset?.action;
+  if(action!=='music-volume'&&action!=='effects-volume')return;
+  const kind=action==='music-volume'?'music':'effects';
+  const value=Number(target.value);
+  store[`${kind}Volume`]=value;
+  const output=document.querySelector(`[data-volume-output="${kind}"]`);
+  if(output)output.textContent=`${value}%`;
+  feedback.setVolume(store.effectsVolume);
+  syncMusic(event.isTrusted);
+  save();
+});
 document.addEventListener('click',event=>{
   const target=event.target.closest('[data-action]');
   if(audioMenuOpen&&!event.target.closest('.audio-controls'))setAudioMenu(false);
@@ -680,7 +696,7 @@ document.addEventListener('keydown',event=>{
     setAudioMenu(false,true);
   }
 });
-document.addEventListener('toggle',event=>{if(!event.target.isConnected)return;if(event.target.matches?.('.preset-list')){presetsOpen=event.target.open;return;}if(event.target.matches?.('.draft-overview')){draftOverviewOpen=event.target.open;return;}if(event.target.matches?.('.log, .lineup-reference')){readingOpen[event.target.matches('.log')?'log':'lineup']=event.target.open;scheduleAI();}},true);
+document.addEventListener('toggle',event=>{if(!event.target.isConnected)return;if(event.target.matches?.('.preset-list')){presetsOpen=event.target.open;return;}if(event.target.matches?.('.draft-overview')){draftOverviewOpen=event.target.open;return;}if(event.target.matches?.('.combat-details')){scheduleAI();return;}if(event.target.matches?.('.log, .lineup-reference')){readingOpen[event.target.matches('.log')?'log':'lineup']=event.target.open;scheduleAI();}},true);
 if(sessionUpdated||!hadSavedSession)save();
 render();
 if(store.tutorial.status==='welcome')welcomeTutorial();

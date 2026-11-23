@@ -2,6 +2,7 @@ import { CARD_GRANTS, applyCardGrants } from './session-migrations.js';
 import { CARDS } from './data.js';
 import { createMatch } from './engine.js';
 import { normalizeDifficulty } from './ai.js';
+import { DEFAULT_MUSIC_VOLUME, DEFAULT_EFFECTS_VOLUME } from './audio-settings.js';
 
 // Keep the earlier hotseat save separate from the local player-versus-AI edition.
 export const RULES_REVISION = '2026-11-02-wind-prediction';
@@ -16,6 +17,8 @@ export function freshSession() {
     battleCompact: true,
     musicEnabled: true,
     effectsEnabled: true,
+    musicVolume: DEFAULT_MUSIC_VOLUME,
+    effectsVolume: DEFAULT_EFFECTS_VOLUME,
     lineupPresets: [],
     selectionDrafts: {},
     players: ['探索者', '群岛 AI'].map((name, player) => ({
