@@ -129,3 +129,20 @@ test('推送失败向调用者报告失败，不打印成功结果', async () =>
   const h = harness({ fail: 'push' });
   await assert.rejects(h.execute(), /Simulated push failure/);
 });
+
+test('TLS握手异常自动切换兼容连接，证书校验保持开启',async()=>{
+  let first=true;
+  const calls=[];
+  const run=(program,args,options)=>{
+    calls.push(args);
+    if(args.includes('fetch')&&first){first=false;throw new Error('schannel: SSL/TLS connection failed');}
+    if(args[0]==='branch')return 'main';
+    if(args[0]==='remote')return 'https://github.com/llx5632/hengchao-beasts.git';
+    if(args[0]==='rev-list')return '0 0';
+    return '';
+  };
+  await publish({run,proxy:()=>'',listTests:()=>[],askUpdateImages:async()=>'',askTitle:async()=>'连接修复',log:()=>{}});
+  assert.equal(calls.filter(args=>args.includes('fetch')).length,2);
+  assert(calls.find(args=>args.includes('fetch')&&args.includes('http.version=HTTP/1.1')));
+  assert(!calls.some(args=>args.some(arg=>arg.includes('sslVerify=false'))));
+});

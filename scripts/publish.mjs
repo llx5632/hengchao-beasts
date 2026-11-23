@@ -90,7 +90,21 @@ export async function publish({
       if (detected) { proxyArgs.push('-c', `http.proxy=${detected}`); log('本次发布使用 Windows 系统代理。'); }
     }
   }
-  const networkGit = (...args) => run('git', [...proxyArgs, ...args], { cwd: root, env });
+  const networkGit = (...args) => {
+    const attempts=[[],['-c','http.version=HTTP/1.1']];
+    if(process.platform==='win32')attempts.push(['-c','http.version=HTTP/1.1','-c','http.sslBackend=openssl']);
+    for(const [index,transport] of attempts.entries()){
+      try{
+        const output=run('git',[...proxyArgs,...transport,...args],{cwd:root,env,capture:true});
+        if(output)log(output);
+        return;
+      }catch(error){
+        const transient=/TLS|SSL|schannel|connection.*reset|timed out|could not connect|failed to connect|recv failure/i.test(error.message);
+        if(!transient||index===attempts.length-1)throw error;
+        log(`Git ${args[0]} 连接失败，正在使用兼容连接方式重试…`);
+      }
+    }
+  };
   log('\n[1/5] 检查远程分支…');
   networkGit('fetch', 'origin', 'main');
   const [behind] = localGit('rev-list', '--left-right', '--count', 'origin/main...HEAD').split(/\s+/).map(Number);

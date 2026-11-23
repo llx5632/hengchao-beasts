@@ -27,7 +27,7 @@ export default defineConfig({
     {name:'desktop',use:{viewport:{width:1280,height:800}}},
     {name:'mobile-390',use:{viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1}},
   ],
-  webServer:{
+  webServer:process.env.BROWSER_TEST_SERVER_MANAGED==='1'?undefined:{
     command:'node scripts/serve-browser-tests.mjs',
     url:`http://127.0.0.1:${port}/hengchao-beasts/`,
     env:{BROWSER_TEST_PORT:String(port)},
