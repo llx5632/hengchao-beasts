@@ -35,6 +35,10 @@ git push -u origin main
 
 到仓库 Actions 查看 **Deploy game to GitHub Pages**，绿色成功后再打开站点。如果此前未选择 GitHub Actions，设置好后在 Actions 中手动运行此工作流。
 
+## 上传与部署任务
+
+2026-11-24起，工作流分为 `build` 和 `deploy`：前者执行规则、部署资源与桌面／手机浏览器检查，再上传 `github-pages`；后者通过 `needs: build` 等待上传任务完整结束，然后调用 Pages 部署。保留两个任务的依赖关系，避免同一任务内上传刚结束就查询包时出现 `No artifacts named "github-pages"`。此现象见官方仓库 [deploy-pages#451](https://github.com/actions/deploy-pages/issues/451)。上传成功不等于部署成功，仍以 `deploy` 成功为完成依据；不能通过跳过检查或重复上传同名包掩盖失败。
+
 ## 以后更新
 
 推荐直接双击项目根目录的 **`一键发布.cmd`**。首先选择是否更新图片资源：输入 **`1`** 会从当前卡面重新生成部署用 WebP，成功后再输入提交标题；输入其他内容或直接回车会跳过图片更新，直接进入提交标题。标题直接回车则取消提交和推送。脚本会自动读取 Windows 系统代理、检查远程分支、运行测试、重新打包、提交并推送，随后由 GitHub Actions 自动发布。窗口会保留执行结果，按任意键关闭。
