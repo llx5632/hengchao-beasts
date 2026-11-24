@@ -123,8 +123,10 @@ for(const outcome of ['victory','defeat','draw'])test(`最后一击与${outcome}
   if(outcome!=='victory')expect(sounds.some(event=>event.duration===1030)).toBe(false);
   if(outcome!=='draw'){
     await expect.poll(()=>page.evaluate(()=>window.transferFlights.length)).toBe(1);
-    expect(await page.evaluate(()=>window.transferFlights[0])).toEqual({duration:560,counts:[33,33]});
-    await expect(page.locator('[data-card-count]')).toHaveText(outcome==='victory'?['34','32']:['32','34']);
+    const counts=value.players.map(player=>player.cards.length);
+    const winner=outcome==='victory'?0:1;
+    expect(await page.evaluate(()=>window.transferFlights[0])).toEqual({duration:560,counts});
+    await expect(page.locator('[data-card-count]')).toHaveText(counts.map((count,seat)=>String(count+(seat===winner?1:-1))));
   }
   expect((await saved(page)).match.winner).toBe(outcome==='draw'?null:outcome==='victory'?0:1);
   await expect(page.locator('.result-title')).toBeVisible();

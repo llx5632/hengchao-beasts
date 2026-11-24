@@ -1,6 +1,6 @@
 import { CARD, TWIN_PARTNERS, BEATS, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
 import { hardPointAction, hardBattleAction } from './ai.js';
-import { resolveCombatAction, clearCombatStatuses, combatStatusValue, applyRpsLoss, battleForViewer, skillAvailable, skillUnavailableReason, battleActions, twinDamageMultiplier, combatOutcomes, expectedCombatScore, immediateCombatScore, simpleDiceChoice, twinBloodBonus } from './combat.js';
+import { resolveCombatAction, clearCombatStatuses, combatStatusValue, applyRpsLoss, resolveDeclaredHand, RPS_HAND_NAMES, battleForViewer, skillAvailable, skillUnavailableReason, battleActions, twinDamageMultiplier, combatOutcomes, expectedCombatScore, immediateCombatScore, simpleDiceChoice, twinBloodBonus } from './combat.js';
 
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 export const randomInt = (max, rng = Math.random) => Math.min(max - 1, Math.floor(rng() * max));
@@ -91,6 +91,7 @@ function battleAction(m,action) {
   const b=m.battle,p=action.player,other=1-p;
   check(m.phase === 'battle-action' && b.actor === p,'只有猜拳胜者可以行动');
   if(action.type==='attack')check(Number.isInteger(action.skill) && action.skill >= 0 && action.skill < 2,'请选择一个技能');
+  if(action.type==='attack'&&CARD[b.cards[p]].skills[action.skill].effect==='declare-hand')check(Object.hasOwn(RPS_HAND_NAMES,action.declaredHand),'请先选择公开宣告的拳型');
   if(action.type==='attack'&&CARD[b.cards[p]].skills[action.skill].effect==='predict'&&!b.prediction?.[p])check(['attack','retreat'].includes(action.prediction),'请先秘密预判进攻或撤退');
   if(action.type==='attack'){
     check(skillAvailable(b,p,action.skill),skillUnavailableReason(b,p,action.skill));
@@ -180,6 +181,15 @@ export function dispatch(match,action,rng=Math.random) {
       if (m.rps[0] === m.rps[1]) { m.phase='rps-tie'; log(m,'猜拳平手，双方均不行动，重新猜拳。'); }
       else { const beats={rock:'scissors',scissors:'paper',paper:'rock'}; m.battle.actor=beats[m.rps[0]] === m.rps[1] ? 0 : 1; m.phase='rps-result'; const hands={rock:'石头',paper:'布',scissors:'剪刀'}; log(m,`${playerName(m,0)}出${hands[m.rps[0]]}，${playerName(m,1)}出${hands[m.rps[1]]}；${playerName(m,m.battle.actor)}获得一次行动权。`);
         const loser=1-m.battle.actor,before=m.battle.wind?.[loser]??-1;m.battle=applyRpsLoss(m.battle,loser);
+        const winner=m.battle.actor;
+        const declarations=m.battle.declaredHand??[];
+        if(declarations.some(Boolean)){
+          const matched=declarations[winner]===m.rps[winner];
+          m.battle=resolveDeclaredHand(m.battle,winner,matched);
+          for(const [seat,hand] of declarations.entries())if(hand){
+            log(m,`${playerName(m,seat)}宣告${RPS_HAND_NAMES[hand]}。${seat===winner&&matched?'守约获胜，本次俯风截羽伤害＋55。':'宣告结束，本次未取得强化。'}`);
+          }
+        }
         if(m.battle.wind[loser]>before)log(m,`${CARD[m.battle.cards[loser]].name}猜拳落败，风压积至${m.battle.wind[loser]}层，下次进攻＋${m.battle.wind[loser]*25}`);
       }
     }
@@ -212,7 +222,8 @@ export function aiAction(m,p,rng=Math.random) {
     if(m.difficulty==='hard')return hardBattleAction(m,p,rng);
     const own=CARD[m.battle.cards[p]], other=CARD[m.battle.cards[1-p]], b=battleForViewer(m.battle,p);
     const prediction=b.remaining[1-p]<=1&&b.hp[1-p]<=Math.max(...own.skills.map(s=>s.damage))?'retreat':'attack';
-    const attack=skill=>({type:'attack',player:p,skill,...(own.skills[skill].effect==='predict'&&!b.prediction?.[p]?{prediction}:{})});
+    const hand=own.skills.some(s=>s.effect==='declare-hand')?Object.keys(RPS_HAND_NAMES)[randomInt(3,rng)]:null;
+    const attack=skill=>({type:'attack',player:p,skill,...(own.skills[skill].effect==='declare-hand'?{declaredHand:hand}:{}),...(own.skills[skill].effect==='predict'&&!b.prediction?.[p]?{prediction}:{})});
     const options=own.skills.map((s,skill)=>skillAvailable(b,p,skill)?combatOutcomes(b,p,attack(skill)):[]);
     const projected=options.map(rs=>rs[0]??null);
     const lethal=options.findIndex(rs=>rs.length&&rs.every(r=>r.finished&&r.winner===p));

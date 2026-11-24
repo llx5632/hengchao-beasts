@@ -1,5 +1,5 @@
 import { CARD, METRICS, POINT_NUMBERS, pointMetricIndex } from './data.js';
-import { resolveCombatAction, combatStatusKey, combatStatusValue, applyRpsLoss, battleActions, twinDamageMultiplier, combatOutcomes, pursuitBonus, twinBloodBonus, overloadBonus, coolingMultiplier, percentMaxHpBonus, retreatTradeBonus, shieldStrikeBonus } from './combat.js';
+import { resolveCombatAction, combatStatusKey, combatStatusValue, applyRpsLoss, resolveDeclaredHand, declaredStrikeBonus, RPS_HAND_NAMES, battleActions, twinDamageMultiplier, combatOutcomes, pursuitBonus, twinBloodBonus, overloadBonus, coolingMultiplier, percentMaxHpBonus, retreatTradeBonus, shieldStrikeBonus } from './combat.js';
 
 export const DIFFICULTIES=Object.freeze({
   easy:{label:'简单',description:'随机选卡、选点和猜拳，使用基础行动判断。'},
@@ -46,7 +46,7 @@ export function hardBattleAction(match,player,rng=Math.random) {
   // Evaluate both possible private choices with equal prior; never inspect the real choice.
   const beliefs=match.battle.prediction?.[other]?['attack','retreat'].map(choice=>({...match.battle,prediction:match.battle.prediction.map((v,p)=>p===other?choice:v)})):[match.battle];
   const heuristic=state=>{
-    const damage=state.cards.map((id,p)=>Math.max(...CARD[id].skills.map(s=>(s.damage*(s.effect==='dice'?4.25:1)+pursuitBonus(state,p,s)+twinBloodBonus(state,p,s)+overloadBonus(state,p,s)+retreatTradeBonus(state,p,s)+shieldStrikeBonus(state,p,s)+percentMaxHpBonus(CARD[state.cards[1-p]].hp,s))*twinDamageMultiplier(s,CARD[state.cards[1-p]].element)*coolingMultiplier(state,1-p))));
+    const damage=state.cards.map((id,p)=>Math.max(...CARD[id].skills.map(s=>(s.damage*(s.effect==='dice'?4.25:1)+pursuitBonus(state,p,s)+twinBloodBonus(state,p,s)+overloadBonus(state,p,s)+retreatTradeBonus(state,p,s)+shieldStrikeBonus(state,p,s)+declaredStrikeBonus(state,p,s)+percentMaxHpBonus(CARD[state.cards[1-p]].hp,s))*twinDamageMultiplier(s,CARD[state.cards[1-p]].element)*coolingMultiplier(state,1-p))));
     return 1/(1+Math.exp(-.8*(state.hp[player]/damage[other]-state.hp[other]/damage[player]+combatStatusValue(state,player)/Math.max(...damage))));
   };
   function afterAction(state,actor,action,depth) {
@@ -59,9 +59,17 @@ export function hardBattleAction(match,player,rng=Math.random) {
   function nextTurn(state,depth) {
     const key=`${depth}:${state.hp.join(',')}:${state.remaining.join(',')}:${combatStatusKey(state)}`;
     if(memo.has(key))return memo.get(key);
-    const mineState=applyRpsLoss(state,other),theirState=applyRpsLoss(state,player);
-    const mine=Math.max(...battleActions(mineState,player).map(a=>afterAction(mineState,player,a,depth)));
-    const theirs=Math.min(...battleActions(theirState,other).map(a=>afterAction(theirState,other,a,depth)));
+    // With random, independent hands, a declared hand matches one third of wins.
+    const decide=(next,actor,optimize)=>optimize(...battleActions(next,actor).map(a=>afterAction(next,actor,a,depth)));
+    const valueIfWinner=(actor,optimize)=>{
+      const afterLoss=applyRpsLoss(state,1-actor);
+      if(!state.declaredHand?.some(Boolean))return decide(afterLoss,actor,optimize);
+      const plain=decide(resolveDeclaredHand(afterLoss,actor,false),actor,optimize);
+      if(!state.declaredHand[actor])return plain;
+      const enhanced=decide(resolveDeclaredHand(afterLoss,actor,true),actor,optimize);
+      return (2*plain+enhanced)/3;
+    };
+    const mine=valueIfWinner(player,Math.max),theirs=valueIfWinner(other,Math.min);
     // Ties replay: either side has equal chance of the next action.
     const value=(mine+theirs)/2;
     memo.set(key,value);
@@ -78,5 +86,7 @@ export function hardBattleAction(match,player,rng=Math.random) {
       return sum+state.hp[other]-next.hp[other]+next.hp[player]-state.hp[player]+5*(next.remaining[other]-state.remaining[other])+combatStatusValue(next,player)-combatStatusValue(state,player)-2*(next.remaining[player]-state.remaining[player]);},0)/beliefs.length;
   };
   const bestGain=Math.max(...candidates.map(gain));
-  return {...randomItem(candidates.filter(a=>Math.abs(gain(a)-bestGain)<1e-9),rng),player};
+  const chosen=randomItem(candidates.filter(a=>Math.abs(gain(a)-bestGain)<1e-9),rng);
+  if(chosen.declaredHand){chosen.declaredHand=randomItem(Object.keys(RPS_HAND_NAMES),rng);}
+  return {...chosen,player};
 }

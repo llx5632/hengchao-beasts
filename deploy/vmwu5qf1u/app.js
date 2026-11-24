@@ -8,7 +8,7 @@ import { freshSession, createLocalMatch } from './session.js';
 import { DIFFICULTIES, normalizeDifficulty } from './ai.js';
 import { scheduledStep, pointRoundPending } from './flow.js';
 import { SELECTION_SORTS, selectionCards, selectionSummary } from './selection.js';
-import { previewSkill, battleEndedBySurrender, combatStatuses, resolveCombatAction, battleForViewer, skillAvailable, skillUnavailableReason, twinBloodBonus } from './combat.js';
+import { previewSkill, battleEndedBySurrender, combatStatuses, resolveCombatAction, battleForViewer, skillAvailable, skillUnavailableReason, twinBloodBonus, RPS_HAND_NAMES } from './combat.js';
 import { selectionDraft, createPreset, resolvePreset, canLeaveSelection } from './roster.js';
 import { newTutorial, beginTutorialLesson, tutorialAction } from './tutorial.js';
 import { renderTutorial } from './tutorial-ui.js';
@@ -222,6 +222,8 @@ function skillButton(battle,p,skill,index){
   if((battle.wind?.[p]??-1)>=0)notes.push(`本次消耗逆风蓄势${battle.wind[p]}层，伤害＋${battle.wind[p]*25}；0层也结束旧蓄势。`);
   if(battle.foresight?.[p])notes.push('本次消耗预判成功增益，伤害＋30。');
   if(skill.effect==='wind'&&!actual.effectSkipped)notes.push('进攻后重新进入逆风蓄势0层；每次猜拳落败积1层，最多2层。');
+  if(skill.effect==='declare-hand'&&!actual.effectSkipped)notes.push('选择并公开宣告一个拳型，等待下次猜拳分出胜负。');
+  if(skill.effect==='declared-strike'&&battle.declaredStrike?.[p])notes.push('用宣告拳型获胜，本次俯风截羽伤害＋55。');
   if(skill.effect==='predict'&&!actual.effectSkipped)notes.push(battle.prediction?.[p]?'保留已封存预判，不改选、不叠加。':'点击后秘密选择预判进攻或撤退，与本次技能一并封存。');
   if(battle.prediction?.[1-p])notes.push('对方的秘密预判将在本次行动结束后揭晓。');
   if(actual.transformed)notes.push(`伤害后转为${CARD[actual.transformed.to].name}，继承全部战斗状态；若战败，失去${CARD[actual.transformed.to].name}。`);
@@ -264,7 +266,7 @@ function skillButton(battle,p,skill,index){
   const afterShield=Math.max(0,b.afterReduction-b.blocked);
   const immediate=afterShield-b.directDeferred;
   const baseCalculation=`基础${b.base}${b.percentBonus?`＋最大HP追加${b.percentBonus}`:''}${b.bonus-b.percentBonus?`＋强化${b.bonus-b.percentBonus}`:''}`;
-  const calculation=`${['max-hp','retreat-trade','shield-strike'].includes(skill.effect)&&(b.elementMultiplier!==1||b.multiplier!==1||b.vulnerabilityMultiplier!==1)?`（${baseCalculation}）`:baseCalculation}${b.elementMultiplier!==1?`×属性倍率${b.elementMultiplier}`:''}${b.multiplier!==1?'×削弱75%':''}${b.vulnerabilityMultiplier!==1?`×散热${b.vulnerabilityMultiplier}`:''}${b.multiplier!==1||b.vulnerabilityMultiplier!==1?`→统一向下取整${b.afterReduction}`:''}${b.blocked?`－护盾${b.blocked}`:''}${b.directDeferred?`－暂存${b.directDeferred}`:''}＝${immediate}${actual.damage<immediate?`；实际直接扣血受剩余HP限制为${actual.damage}`:''}${b.directSettled?`；旧伤另扣${b.directSettled}`:''}`;
+  const calculation=`${['max-hp','retreat-trade','shield-strike','declared-strike'].includes(skill.effect)&&(b.elementMultiplier!==1||b.multiplier!==1||b.vulnerabilityMultiplier!==1)?`（${baseCalculation}）`:baseCalculation}${b.elementMultiplier!==1?`×属性倍率${b.elementMultiplier}`:''}${b.multiplier!==1?'×削弱75%':''}${b.vulnerabilityMultiplier!==1?`×散热${b.vulnerabilityMultiplier}`:''}${b.multiplier!==1||b.vulnerabilityMultiplier!==1?`→统一向下取整${b.afterReduction}`:''}${b.blocked?`－护盾${b.blocked}`:''}${b.directDeferred?`－暂存${b.directDeferred}`:''}＝${immediate}${actual.damage<immediate?`；实际直接扣血受剩余HP限制为${actual.damage}`:''}${b.directSettled?`；旧伤另扣${b.directSettled}`:''}`;
   return `<div class="skill-choice"><button class="skill-button" data-action="attack" data-skill="${index}" aria-label="${skill.name}：${impact}${notes.length?'，'+notes.join(' '):''}"><em>${actual.damage}<small>实际直接伤害</small></em><strong>${skill.name}</strong><span class="skill-actual">${impact}</span><span class="skill-projection">对方最终HP：${battle.hp[1-p]} → ${actual.targetHp} · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}</span>${statePreview.length?`<span class="skill-state-preview">${statePreview.map(text=>`<span>${esc(text)}</span>`).join('')}</span>`:''}${actual.selfDefeat?'<span class="skill-notice risk">警告：本次行动结束后自己战败，判负失卡</span>':actual.draw?'<span class="skill-notice">本次平局，双方保卡</span>':actual.lethal?'<span class="skill-notice lethal">本次可击败对方</span>':''}</button><details class="combat-details"><summary>查看${skill.name}的规则与计算</summary><span class="skill-base">基础：${skillText(skill)}</span><span class="skill-actual">${impact}</span><span class="skill-projection">${calculation}<br>对方最终HP：${battle.hp[1-p]} → ${actual.targetHp}${skill.effect==='shield-strike'||skill.effect==='leaf-shield'||skill.effect==='max-hp'||skill.effect==='heal'||skill.effect==='drain'||actual.burnDamage[p]||actual.deathDamage[p]||actual.reviveTriggered[p]||actual.reflectTriggered.some(Boolean)?` · 自己最终HP：${battle.hp[p]} → ${actual.ownHp}`:''}</span>${notes.map(note=>`<span class="skill-notice ${actual.selfDefeat?'risk':actual.lethal?'lethal':''}">${note}</span>`).join('')}</details></div>`;
 }
 function retreatButton(b,p){
@@ -652,10 +654,18 @@ document.addEventListener('click',event=>{
   if(a==='dice-keep'||a==='dice-reroll')return send({type:a,player:p});
   if(a==='attack'){
     const skill=Number(target.dataset.skill);
+    if(CARD[m.battle.cards[p]].skills[skill].effect==='declare-hand'){
+      const buttons=Object.entries(RPS_HAND_NAMES).map(([hand,label])=>btn(`宣告${label}`,'declare-hand','',`data-hand="${hand}" data-skill="${skill}"`)).join('');
+      modal('展冠鸣哨 · 公开宣告',`<p>选择一个公开宣告的拳型。下一轮仍可自由出拳。</p><div class="toolbar">${buttons}</div>`);return;
+    }
     if(CARD[m.battle.cards[p]].skills[skill].effect==='predict'&&!m.battle.prediction?.[p]){
       modal('秘密预判对方的下一次行动',`<p>选择进攻或撤退，与本次伏路预判一并封存。对手行动结束后才揭晓；猜中且战斗继续，下次进攻＋30。</p><div class="toolbar">${btn('预判进攻并施放','prediction-attack','',`data-skill="${skill}"`)}${btn('预判撤退并施放','prediction-retreat','ghost',`data-skill="${skill}"`)}</div>`);return;
     }
     return send({type:'attack',player:p,skill});
+  }
+  if(a==='declare-hand'){
+    document.querySelector('#dialog').close();
+    return send({type:'attack',player:p,skill:Number(target.dataset.skill),declaredHand:target.dataset.hand});
   }
   if(a==='prediction-attack'||a==='prediction-retreat'){
     document.querySelector('#dialog').close();

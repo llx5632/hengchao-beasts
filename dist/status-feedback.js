@@ -8,6 +8,8 @@ const STATES = [
   {key:'root',name:'根劲',family:'charge'},
   {key:'echo',name:'回响记录',family:'charge'},
   {key:'foresight',name:'预判增益',family:'charge'},
+  {key:'declaredHand',name:'公开宣告',family:'charge',initial:null},
+  {key:'declaredStrike',name:'俯风截羽强化',family:'charge',initial:false},
   {key:'prediction',name:'秘密预判',family:'charge',initial:null},
   {key:'burn',name:'余烬烙印',family:'harm'},
   {key:'mark',name:'晶痕',family:'harm',initial:null},
