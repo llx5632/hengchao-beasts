@@ -86,6 +86,16 @@ test('顶部音频入口在正式页面与教程可用，移动端菜单支持�
   await openAudioMenu(page);
   const music=page.getByRole('button',{name:'背景音乐',exact:true});
   const effects=page.getByRole('button',{name:'对局音效',exact:true});
+  const preloads=new Set();
+  let requestedLastEffect=false;
+  // Wait for this page's audio preloads before navigation cancels them.
+  page.on('request',request=>{
+    const path=new URL(request.url()).pathname;
+    if(!/\/sfx-[^/]+\.wav$/.test(path))return;
+    preloads.add(request);
+    if(path.endsWith('/sfx-status-harm.wav'))requestedLastEffect=true;
+  });
+  page.on('requestfinished',request=>preloads.delete(request));
   await effects.click();
   await expect(effects).toHaveAttribute('aria-pressed','true');
   await expect(music).toHaveAttribute('aria-pressed','false');
@@ -94,6 +104,7 @@ test('顶部音频入口在正式页面与教程可用，移动端菜单支持�
     await expect(switches).toBeHidden();
   }
   await noOverflow(page);
+  await expect.poll(()=>requestedLastEffect&&preloads.size===0).toBe(true);
   await page.reload();
   await openAudioMenu(page);
   await expect(effects).toHaveAttribute('aria-pressed','true');
